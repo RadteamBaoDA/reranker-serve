@@ -8,7 +8,9 @@ A high-performance reranker service using Sentence Transformer models, compatibl
 - 🔄 **API Compatibility** - Compatible with Jina AI and Cohere reranker APIs
 - 🤖 **Multiple Model Support** - Supports BAAI/bge-reranker and Qwen3-reranker models
 - 💻 **Multi-platform** - Optimized for CUDA, Apple Silicon (MPS), and CPU
+- 🪟 **Cross-platform Scripts** - Full support for Windows, Linux, and macOS
 - 📦 **Offline Mode** - Load models from local disk without internet access
+- 🐳 **Docker Ready** - Includes Dockerfile and docker-compose.yml
 - ⚡ **Production Ready** - Uvicorn ASGI server with multiple workers
 
 ## Supported Models
@@ -20,11 +22,29 @@ A high-performance reranker service using Sentence Transformer models, compatibl
 
 ## Quick Start
 
+### Windows
+
+1. **Setup the environment (PowerShell):**
+   ```powershell
+   .\setup.ps1
+   ```
+
+2. **Run the server:**
+   ```powershell
+   .\run.ps1
+   ```
+
+3. **Alternative (Batch files):**
+   ```cmd
+   setup.bat
+   run.bat
+   ```
+
 ### Linux/macOS
 
 1. **Setup the environment:**
    ```bash
-   chmod +x setup.sh run.sh download_model.sh
+   chmod +x setup.sh run.sh download_model.sh daemon.sh
    ./setup.sh
    ```
 
@@ -33,22 +53,36 @@ A high-performance reranker service using Sentence Transformer models, compatibl
    ./run.sh
    ```
 
-3. **Access the API:**
-   - API Docs: http://localhost:8000/docs
-   - Health Check: http://localhost:8000/health
+### Access the API
+
+- API Docs: http://localhost:8000/docs
+- Health Check: http://localhost:8000/health
 
 ### Manual Setup
 
 ```bash
 # Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate  # Linux/macOS
+# or
+.\venv\Scripts\Activate.ps1  # Windows PowerShell
 
 # Install dependencies
 pip install -r requirements.txt
 
 # Run the server
 uvicorn src.main:app --host 0.0.0.0 --port 8000
+```
+
+### Docker
+
+```bash
+# Build and run with docker-compose
+docker-compose up -d
+
+# Or build manually
+docker build -t reranker-serve .
+docker run -p 8000:8000 reranker-serve
 ```
 
 ## API Endpoints
@@ -133,6 +167,8 @@ RERANKER_LOG_LEVEL=INFO
 
 ## Offline Model Usage
 
+### Linux/macOS
+
 1. **Download the model:**
    ```bash
    ./download_model.sh BAAI/bge-reranker-v2-m3 ./models
@@ -147,6 +183,24 @@ RERANKER_LOG_LEVEL=INFO
 3. **Run the server:**
    ```bash
    ./run.sh
+   ```
+
+### Windows
+
+1. **Download the model (PowerShell):**
+   ```powershell
+   .\download_model.ps1 -ModelName "BAAI/bge-reranker-v2-m3" -OutputDir "./models"
+   ```
+
+2. **Configure for offline use:**
+   ```powershell
+   $env:RERANKER_MODEL_PATH="./models/BAAI_bge-reranker-v2-m3"
+   $env:RERANKER_USE_OFFLINE_MODE="true"
+   ```
+
+3. **Run the server:**
+   ```powershell
+   .\run.ps1
    ```
 
 ## Apple Silicon (MPS) Optimization
@@ -167,7 +221,11 @@ python -c "import torch; print('MPS available:', torch.backends.mps.is_available
 ### Install dev dependencies
 
 ```bash
+# Linux/macOS
 ./setup.sh --dev
+
+# Windows PowerShell
+.\setup.ps1 -Dev
 ```
 
 ### Run tests
@@ -179,10 +237,16 @@ pytest tests/ -v
 ### Run with auto-reload
 
 ```bash
+# Linux/macOS
 ./run.sh --dev
+
+# Windows PowerShell
+.\run.ps1 -Dev
 ```
 
 ### Run as Daemon (Background Service)
+
+#### Linux/macOS
 
 ```bash
 # Start as daemon
@@ -199,6 +263,56 @@ pytest tests/ -v
 
 # Restart daemon
 ./daemon.sh restart
+```
+
+#### Windows (PowerShell)
+
+```powershell
+# Start as background job
+.\daemon.ps1 -Action start
+
+# Check status
+.\daemon.ps1 -Action status
+
+# View logs
+.\daemon.ps1 -Action logs
+
+# Stop daemon
+.\daemon.ps1 -Action stop
+
+# Restart daemon
+.\daemon.ps1 -Action restart
+```
+
+## Troubleshooting
+
+### Windows: PyTorch DLL Error
+
+If you encounter `[WinError 1114] A dynamic link library (DLL) initialization routine failed`:
+
+1. **Install Visual C++ Redistributable:**
+   - Download from: https://aka.ms/vs/17/release/vc_redist.x64.exe
+   - Install and restart your terminal
+
+2. **Run the fix script:**
+   ```powershell
+   .\fix-pytorch.ps1
+   ```
+
+### Verify PyTorch Installation
+
+```bash
+python -c "import torch; print('PyTorch:', torch.__version__)"
+```
+
+### Verify Device Support
+
+```bash
+# CUDA
+python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
+
+# MPS (Apple Silicon)
+python -c "import torch; print('MPS available:', torch.backends.mps.is_available())"
 ```
 
 ## Project Structure
@@ -227,12 +341,26 @@ reranker-serve/
 │   ├── test_api.py
 │   ├── test_config.py
 │   └── test_reranker.py
-├── setup.sh                 # Setup script
-├── run.sh                   # Run script
-├── download_model.sh        # Model download script
+├── models/                  # Model cache directory
+├── setup.sh                 # Setup script (Linux/macOS)
+├── setup.ps1                # Setup script (Windows PowerShell)
+├── setup.bat                # Setup script (Windows Batch)
+├── run.sh                   # Run script (Linux/macOS)
+├── run.ps1                  # Run script (Windows PowerShell)
+├── run.bat                  # Run script (Windows Batch)
+├── daemon.sh                # Daemon script (Linux/macOS)
+├── daemon.ps1               # Daemon script (Windows PowerShell)
+├── download_model.sh        # Model download (Linux/macOS)
+├── download_model.ps1       # Model download (Windows PowerShell)
+├── download_model.bat       # Model download (Windows Batch)
+├── fix-pytorch.ps1          # PyTorch fix script (Windows)
+├── Dockerfile               # Docker build file
+├── docker-compose.yml       # Docker Compose config
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── pyproject.toml
+├── .env.example             # Environment variables template
+├── .gitignore
 └── README.md
 ```
 

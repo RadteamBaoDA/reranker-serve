@@ -287,8 +287,11 @@ class RerankerModel:
         """Normalize scores using sigmoid function."""
         import numpy as np
         
+        # Ensure scores is a numpy array
+        scores_array = np.array(scores)
+        
         # Apply sigmoid to convert logits to probabilities
-        normalized = 1 / (1 + np.exp(-scores))
+        normalized = 1 / (1 + np.exp(-scores_array))
         return normalized.tolist()
     
     @property

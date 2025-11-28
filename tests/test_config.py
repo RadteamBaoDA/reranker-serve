@@ -3,8 +3,20 @@ Unit tests for configuration settings.
 """
 
 import os
+import sys
 import pytest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+
+# Ensure torch is mocked before importing settings
+if "torch" not in sys.modules:
+    mock_torch = MagicMock()
+    mock_torch.__version__ = "2.0.0"
+    mock_torch.cuda.is_available.return_value = False
+    mock_torch.backends.mps.is_available.return_value = False
+    mock_torch.backends.mps.is_built.return_value = False
+    mock_torch.float16 = "float16"
+    mock_torch.float32 = "float32"
+    sys.modules["torch"] = mock_torch
 
 
 class TestSettings:
@@ -44,6 +56,7 @@ class TestSettings:
         settings = Settings()
         device = settings.get_device()
         
+        # With mocked torch, should return "cpu" since CUDA and MPS are mocked as unavailable
         assert device in ["cuda", "mps", "cpu"]
     
     def test_get_device_explicit(self):

@@ -5,13 +5,20 @@ Supports environment variables and optimized settings for different platforms.
 
 import os
 import platform
-from typing import Optional, Literal
-from pydantic_settings import BaseSettings
+from typing import Optional, Literal, List
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
 
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
+    
+    model_config = SettingsConfigDict(
+        env_prefix="RERANKER_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+    )
     
     # Server Configuration
     host: str = Field(default="0.0.0.0", description="Server host")
@@ -72,12 +79,6 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     
-    class Config:
-        env_prefix = "RERANKER_"
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-    
     def get_device(self) -> str:
         """Auto-detect the best available device."""
         if self.device:
@@ -127,7 +128,7 @@ class Settings(BaseSettings):
         
         return torch.float32
     
-    def get_cors_origins_list(self) -> list[str]:
+    def get_cors_origins_list(self) -> List[str]:
         """Parse CORS origins string into list."""
         if self.cors_origins == "*":
             return ["*"]

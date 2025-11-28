@@ -4,7 +4,7 @@ Compatible with Jina AI and Cohere API formats.
 """
 
 from typing import List, Optional, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # Common schemas
@@ -23,8 +23,8 @@ class RerankRequest(BaseModel):
     top_n: Optional[int] = Field(default=None, description="Number of top results to return")
     return_documents: bool = Field(default=True, description="Whether to return document text")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "query": "What is deep learning?",
                 "documents": [
@@ -36,6 +36,7 @@ class RerankRequest(BaseModel):
                 "return_documents": True
             }
         }
+    )
 
 
 class RerankResult(BaseModel):
@@ -62,8 +63,8 @@ class CohereRerankRequest(BaseModel):
     model: Optional[str] = Field(default=None, description="Model to use (ignored, uses configured model)")
     max_chunks_per_doc: Optional[int] = Field(default=None, description="Max chunks (ignored)")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "query": "What is deep learning?",
                 "documents": [
@@ -73,6 +74,7 @@ class CohereRerankRequest(BaseModel):
                 "top_n": 2
             }
         }
+    )
 
 
 class CohereRerankResult(BaseModel):
@@ -99,8 +101,8 @@ class JinaRerankRequest(BaseModel):
     top_n: Optional[int] = Field(default=None, description="Number of results")
     return_documents: bool = Field(default=True, description="Return documents")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "query": "What is machine learning?",
                 "documents": [
@@ -110,6 +112,7 @@ class JinaRerankRequest(BaseModel):
                 "top_n": 1
             }
         }
+    )
 
 
 class JinaRerankResult(BaseModel):
