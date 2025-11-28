@@ -1,0 +1,102 @@
+# Reranker Service Configuration
+# LiteLLM-style YAML configuration for load balancing
+
+# Model list - define multiple reranker backends
+model_list:
+  # Local model (default)
+  - model_name: "local/bge-reranker-v2-m3"
+    # No api_base means use local model
+    weight: 1.0
+    priority: 0  # Highest priority (lowest number)
+    max_length: 512
+    batch_size: 32
+
+  # Remote backend example 1
+  - model_name: "remote/reranker-server-1"
+    litellm_params:
+      api_base: "http://reranker-server-1:8000"
+      api_key: "${RERANKER_SERVER_1_API_KEY}"  # Environment variable
+    weight: 1.0
+    priority: 1
+    rpm: 1000  # Rate limit: requests per minute
+    tpm: 100000  # Rate limit: tokens per minute
+    max_parallel_requests: 50
+    timeout: 30.0
+    health_check_enabled: true
+    health_check_interval: 60
+
+  # Remote backend example 2
+  - model_name: "remote/reranker-server-2"
+    litellm_params:
+      api_base: "http://reranker-server-2:8000"
+      api_key: "${RERANKER_SERVER_2_API_KEY}"
+    weight: 2.0  # Higher weight = more traffic
+    priority: 1
+    rpm: 2000
+    max_parallel_requests: 100
+    timeout: 30.0
+    health_check_enabled: true
+
+  # Jina AI reranker (example)
+  # - model_name: "jina/jina-reranker-v2-base-multilingual"
+  #   litellm_params:
+  #     api_base: "https://api.jina.ai"
+  #     api_key: "${JINA_API_KEY}"
+  #   weight: 0.5
+  #   priority: 2  # Lower priority = fallback
+  #   timeout: 60.0
+
+  # Cohere reranker (example)
+  # - model_name: "cohere/rerank-english-v3.0"
+  #   litellm_params:
+  #     api_base: "https://api.cohere.ai"
+  #     api_key: "${COHERE_API_KEY}"
+  #   weight: 0.5
+  #   priority: 2
+  #   timeout: 60.0
+
+# Router settings
+router_settings:
+  # Routing strategy options:
+  # - "weighted-random": Random selection weighted by model weights
+  # - "round-robin": Sequential rotation through backends
+  # - "least-busy": Route to backend with fewest active requests
+  # - "latency-based-routing": Route to backend with lowest average latency
+  # - "priority-failover": Use highest priority backend, failover on error
+  # - "simple-shuffle": Random selection
+  routing_strategy: "weighted-random"
+  
+  # Retry settings
+  num_retries: 3
+  retry_delay: 1.0  # seconds
+  retry_on_status_codes: [429, 500, 502, 503, 504]
+  
+  # Fallback to local model if all backends fail
+  fallback_to_local: true
+  
+  # Timeout settings
+  default_timeout: 30.0
+  
+  # Caching (optional)
+  enable_caching: false
+  cache_ttl: 3600  # seconds
+  
+  # Health check interval (seconds)
+  health_check_interval: 60
+  
+  # Request logging
+  enable_request_logging: true
+
+# Environment variables (optional)
+# These will be set when the config is loaded
+environment_variables:
+  # RERANKER_MODEL_NAME: "BAAI/bge-reranker-v2-m3"
+  # RERANKER_DEVICE: "cuda"
+
+# General settings
+general_settings:
+  # Master API key for the load balancer (optional)
+  # master_key: "${RERANKER_MASTER_KEY}"
+  
+  # Enable detailed debug logging
+  debug: false

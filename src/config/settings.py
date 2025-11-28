@@ -76,6 +76,16 @@ class Settings(BaseSettings):
         description="Comma-separated list of allowed CORS origins"
     )
     
+    # Load Balancer Configuration
+    enable_load_balancer: bool = Field(
+        default=False,
+        description="Enable load balancing across multiple backends"
+    )
+    config_path: Optional[str] = Field(
+        default=None,
+        description="Path to LiteLLM-style YAML configuration file"
+    )
+    
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     

@@ -155,6 +155,8 @@ Configuration is done through environment variables with the `RERANKER_` prefix:
 | `RERANKER_USE_FP16` | Use FP16 precision | `true` |
 | `RERANKER_API_KEY` | API key for auth | `None` |
 | `RERANKER_LOG_LEVEL` | Logging level | `INFO` |
+| `RERANKER_LOAD_BALANCER_ENABLED` | Enable load balancer mode | `false` |
+| `RERANKER_CONFIG_PATH` | Path to YAML config file | `./reranker_config.yaml` |
 
 ### Example `.env` file
 
@@ -163,6 +165,80 @@ RERANKER_PORT=8000
 RERANKER_MODEL_NAME=BAAI/bge-reranker-v2-m3
 RERANKER_DEVICE=mps
 RERANKER_LOG_LEVEL=INFO
+```
+
+## Load Balancer (LiteLLM-Style)
+
+The service includes a load balancer that can route requests across multiple reranker backends, similar to LiteLLM's router.
+
+### Enable Load Balancer
+
+1. **Create a YAML configuration file** (`reranker_config.yaml`):
+
+```yaml
+model_list:
+  - model_name: "primary-reranker"
+    litellm_params:
+      api_base: "http://server1:8000"
+      api_key: "optional-key"
+    weight: 2.0
+    priority: 0
+    
+  - model_name: "backup-reranker"
+    litellm_params:
+      api_base: "http://server2:8000"
+    weight: 1.0
+    priority: 1
+
+router_settings:
+  routing_strategy: "weighted-random"  # or round-robin, least-busy, latency-based-routing, priority-failover
+  num_retries: 3
+  retry_delay: 1.0
+  fallback_to_local: true
+  health_check_interval: 60
+```
+
+2. **Enable in environment:**
+
+```bash
+export RERANKER_LOAD_BALANCER_ENABLED=true
+export RERANKER_CONFIG_PATH=./reranker_config.yaml
+```
+
+3. **Use load-balanced endpoints:**
+
+```bash
+# Requests are automatically load-balanced
+POST /rerank
+POST /v1/rerank  
+POST /api/v1/rerank
+```
+
+### Routing Strategies
+
+| Strategy | Description |
+|----------|-------------|
+| `weighted-random` | Random selection weighted by model weights (default) |
+| `round-robin` | Sequential rotation through backends |
+| `least-busy` | Route to backend with fewest active requests |
+| `latency-based-routing` | Route to backend with lowest average latency |
+| `priority-failover` | Use highest priority backend, failover on error |
+| `simple-shuffle` | Pure random selection |
+
+### Load Balancer Features
+
+- **Health Checks**: Automatic health monitoring of backends
+- **Circuit Breaker**: Unhealthy backends are temporarily removed
+- **Automatic Retries**: Failed requests retry on other backends
+- **Rate Limiting**: Per-backend request rate limits (rpm, tpm)
+- **Request Logging**: Detailed logging of routed requests
+- **Fallback to Local**: Use local model if all backends fail
+
+### Monitor Load Balancer
+
+```bash
+# Check load balancer statistics
+curl http://localhost:8000/lb/stats
 ```
 
 ## Offline Model Usage
@@ -332,16 +408,22 @@ reranker-serve/
 │   ├── models/
 │   │   ├── __init__.py
 │   │   └── reranker.py      # Reranker model
-│   └── schemas/
+│   ├── schemas/
+│   │   ├── __init__.py
+│   │   └── rerank.py        # Pydantic schemas
+│   └── load_balancer/
 │       ├── __init__.py
-│       └── rerank.py        # Pydantic schemas
+│       ├── config.py        # YAML config loader
+│       └── router.py        # Load balancer router
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py
 │   ├── test_api.py
 │   ├── test_config.py
+│   ├── test_load_balancer.py
 │   └── test_reranker.py
 ├── models/                  # Model cache directory
+├── reranker_config.yaml.example  # Load balancer config example
 ├── setup.sh                 # Setup script (Linux/macOS)
 ├── setup.ps1                # Setup script (Windows PowerShell)
 ├── setup.bat                # Setup script (Windows Batch)

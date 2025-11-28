@@ -31,6 +31,20 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Reranker Service...")
     logger.info(f"Model: {settings.model_name}")
     logger.info(f"Device: {settings.get_device()}")
+    logger.info(f"Load Balancer: {'Enabled' if settings.enable_load_balancer else 'Disabled'}")
+    
+    # Initialize load balancer if enabled
+    lb_router = None
+    if settings.enable_load_balancer:
+        try:
+            from src.load_balancer import load_config, initialize_router
+            config = load_config(settings.config_path)
+            lb_router = await initialize_router(config)
+            logger.info(f"Load balancer initialized with {len(config.model_list)} backends")
+            logger.info(f"Routing strategy: {config.router_settings.routing_strategy}")
+        except Exception as e:
+            logger.error(f"Failed to initialize load balancer: {e}")
+            logger.info("Falling back to local model only")
     
     # Pre-load the model
     try:
@@ -45,6 +59,16 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down Reranker Service...")
+    
+    # Close load balancer
+    if lb_router:
+        try:
+            from src.load_balancer import close_router
+            await close_router()
+            logger.info("Load balancer closed")
+        except Exception as e:
+            logger.error(f"Error closing load balancer: {e}")
+    
     try:
         from src.models.reranker import reset_reranker_model
         reset_reranker_model()
@@ -70,11 +94,17 @@ def create_app() -> FastAPI:
         - Cohere-compatible API at `/v1/rerank`
         - Jina AI-compatible API at `/api/v1/rerank`
         
+        ## Load Balancer
+        - Load-balanced API at `/lb/rerank`, `/lb/v1/rerank`, `/lb/api/v1/rerank`
+        - Supports multiple backends with LiteLLM-style YAML configuration
+        - Routing strategies: weighted-random, round-robin, least-busy, latency-based, priority-failover
+        
         ## Features
         - Offline model loading support
         - Apple Silicon (MPS) optimization
         - CUDA acceleration
         - Automatic device detection
+        - Load balancing across multiple backends
         """,
         version=__version__,
         lifespan=lifespan,
@@ -96,6 +126,11 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(health_router)
     app.include_router(router)
+    
+    # Include load balancer routes if enabled
+    if settings.enable_load_balancer:
+        from src.api.lb_routes import router as lb_router
+        app.include_router(lb_router)
     
     return app
 
