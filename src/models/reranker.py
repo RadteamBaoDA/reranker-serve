@@ -53,10 +53,14 @@ class RerankerModel:
             os.environ["HF_HUB_OFFLINE"] = "1"
             os.environ["TRANSFORMERS_OFFLINE"] = "1"
         
-        # Set cache directory
+        # Set cache directory (use absolute path for consistency)
         if settings.model_cache_dir:
-            os.environ["HF_HOME"] = settings.model_cache_dir
-            os.environ["TRANSFORMERS_CACHE"] = settings.model_cache_dir
+            cache_dir = os.path.abspath(settings.model_cache_dir)
+            os.makedirs(cache_dir, exist_ok=True)
+            os.environ["HF_HOME"] = cache_dir
+            os.environ["HF_HUB_CACHE"] = cache_dir
+            os.environ["TRANSFORMERS_CACHE"] = cache_dir
+            os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
         
         # MPS-specific optimizations for Apple Silicon
         if self.device == "mps":
@@ -96,9 +100,26 @@ class RerankerModel:
     def _get_cache_path(self, model_name: str) -> str:
         """Get the cache path for a model."""
         # Convert model name to cache directory format
-        cache_dir = settings.model_cache_dir
-        model_dir_name = model_name.replace("/", "_").replace("\\", "_")
-        return os.path.join(cache_dir, model_dir_name)
+        cache_dir = os.path.abspath(settings.model_cache_dir)
+        
+        # HuggingFace hub uses models--org--name format
+        model_dir_name = model_name.replace("/", "--")
+        hf_cache_path = os.path.join(cache_dir, f"models--{model_dir_name}")
+        
+        # Also check simple format (org_name)
+        simple_cache_path = os.path.join(cache_dir, model_name.replace("/", "_").replace("\\", "_"))
+        
+        # Return HF format if it exists, otherwise simple format
+        if os.path.isdir(hf_cache_path):
+            # Look for snapshots directory in HF cache
+            snapshots_dir = os.path.join(hf_cache_path, "snapshots")
+            if os.path.isdir(snapshots_dir):
+                # Get the latest snapshot
+                snapshots = os.listdir(snapshots_dir)
+                if snapshots:
+                    return os.path.join(snapshots_dir, snapshots[0])
+        
+        return simple_cache_path
     
     def load(self) -> "RerankerModel":
         """Load the model into memory."""
@@ -153,15 +174,19 @@ class RerankerModel:
                         f"Checked paths: {settings.model_path}, {self._get_cache_path(settings.model_name)}"
                     )
                 
-                # Download model from Hugging Face
+                # Download model from Hugging Face to configured cache directory
                 logger.info(f"Model not found locally, downloading from Hugging Face: {settings.model_name}")
                 
-                # Ensure cache directory exists
-                os.makedirs(settings.model_cache_dir, exist_ok=True)
+                # Ensure cache directory exists (use absolute path)
+                cache_dir = os.path.abspath(settings.model_cache_dir)
+                os.makedirs(cache_dir, exist_ok=True)
                 
                 # Use model name directly - CrossEncoder will handle download
                 model_source = settings.model_name
-                logger.info(f"Downloading model to cache: {settings.model_cache_dir}")
+                
+                # Pass cache_folder to CrossEncoder to download to configured path
+                model_kwargs["cache_folder"] = cache_dir
+                logger.info(f"Downloading model to cache: {cache_dir}")
             
             # Load the model
             logger.info(f"Loading model from: {model_source}")
