@@ -86,6 +86,12 @@ class Settings(BaseSettings):
         description="Path to LiteLLM-style YAML configuration file"
     )
     
+    # HTTP Client Configuration
+    trust_env: bool = Field(
+        default=True,
+        description="Trust environment variables for proxy settings (HTTP_PROXY, HTTPS_PROXY). Set to False to ignore proxy."
+    )
+    
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     

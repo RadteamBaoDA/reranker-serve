@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from .config import LoadBalancerConfig, ModelConfig, load_config
 
 logger = get_logger(__name__)
@@ -67,19 +67,19 @@ class LoadBalancerRouter:
         
     async def initialize(self):
         """Initialize async resources."""
-        # Configure httpx client with proxy bypass for internal requests
-        # trust_env=False prevents httpx from using system proxy settings
-        # This is important for internal load balancer communication
+        # Configure httpx client with proxy settings from configuration
+        # trust_env controls whether to use system proxy environment variables
+        # Default is False to ignore proxy for internal load balancer communication
         self._http_client = httpx.AsyncClient(
             timeout=self.config.router_settings.default_timeout,
             follow_redirects=True,
-            trust_env=False,  # Ignore proxy environment variables
+            trust_env=settings.trust_env,  # Configurable proxy settings
         )
         
         logger.info(
             "http_client_initialized",
             timeout=self.config.router_settings.default_timeout,
-            proxy_bypass=True,
+            trust_env=settings.trust_env,
         )
         
         # Start health check task
