@@ -38,11 +38,12 @@ fi
 # Clean up old log files based on retention days
 cleanup_old_logs() {
     RETENTION_DAYS=${RERANKER_LOG_RETENTION_DAYS:-7}
+    LOG_DIR=${RERANKER_LOG_DIR:-./logs}
 
-    echo "Cleaning up log files older than $RETENTION_DAYS days..."
-
-    # Find and delete old log files matching pattern log_*.log and their rotated backups
-    find . -maxdepth 1 -name "log_*.log*" -type f -mtime +$RETENTION_DAYS -exec rm -f {} \; 2>/dev/null
+    if [ -d "$LOG_DIR" ]; then
+        echo "Cleaning up log files older than $RETENTION_DAYS days in $LOG_DIR..."
+        find "$LOG_DIR" -name "log_*.log*" -type f -mtime +$RETENTION_DAYS -exec rm -f {} \; 2>/dev/null
+    fi
 }start() {
     # Load environment variables first
     load_env
@@ -79,7 +80,8 @@ cleanup_old_logs() {
     fi
     
     echo "Service started with PID $PID."
-    echo "Logs are being written to log_yyyymmddhhmmss.log format"
+    LOG_DIR=${RERANKER_LOG_DIR:-./logs}
+    echo "Logs are being written to $LOG_DIR/log_yyyymmddhhmmss.log"
 }
 
 stop() {
@@ -135,13 +137,18 @@ status() {
 }
 
 logs() {
-    # Find the most recent log file
-    LATEST_LOG=$(ls -t log_*.log 2>/dev/null | head -1)
-    if [ -n "$LATEST_LOG" ] && [ -f "$LATEST_LOG" ]; then
-        echo "Tailing $LATEST_LOG..."
-        tail -f "$LATEST_LOG"
+    LOG_DIR=${RERANKER_LOG_DIR:-./logs}
+    # Find the most recent log file in the log directory
+    if [ -d "$LOG_DIR" ]; then
+        LATEST_LOG=$(ls -t "$LOG_DIR"/log_*.log 2>/dev/null | head -1)
+        if [ -n "$LATEST_LOG" ] && [ -f "$LATEST_LOG" ]; then
+            echo "Tailing $LATEST_LOG..."
+            tail -f "$LATEST_LOG"
+        else
+            echo "No log files found in $LOG_DIR matching log_*.log pattern."
+        fi
     else
-        echo "No log files found matching log_*.log pattern."
+        echo "Log directory $LOG_DIR not found."
     fi
 }
 

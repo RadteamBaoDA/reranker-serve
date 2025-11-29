@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
     json_logs: bool = Field(default=False, description="Output logs in JSON format")
-    log_file: Optional[str] = Field(default="reranker.log", description="Path to log file")
+    log_dir: str = Field(default="./logs", description="Directory to store log files")
     log_retention_days: int = Field(default=7, description="Number of days to keep log files")
     log_max_bytes: int = Field(default=10485760, description="Maximum size of log file in bytes before rotation (default: 10MB)")
     log_backup_count: int = Field(default=5, description="Number of backup log files to keep per day")

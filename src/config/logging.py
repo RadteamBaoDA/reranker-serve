@@ -33,7 +33,7 @@ def get_log_filename(base_name: str) -> str:
 def configure_logging(
     log_level: Optional[str] = None,
     json_logs: Optional[bool] = None,
-    log_to_file: Optional[str] = None,
+    log_dir: Optional[str] = None,
 ) -> None:
     """
     Configure structured logging for the application.
@@ -43,14 +43,14 @@ def configure_logging(
                    Defaults to settings.log_level.
         json_logs: If True, output JSON format. If False, use console renderer.
                    Defaults to settings.json_logs.
-        log_to_file: Optional file path to also log to.
-                   Defaults to settings.log_file.
+        log_dir: Directory to store log files.
+                   Defaults to settings.log_dir.
     """
     level = log_level or settings.log_level
     log_level_int = getattr(logging, level.upper(), logging.INFO)
     
     use_json = json_logs if json_logs is not None else settings.json_logs
-    log_file = log_to_file or settings.log_file
+    log_directory = log_dir or settings.log_dir
 
     # Shared processors for both structlog and stdlib logging
     shared_processors = [
@@ -105,10 +105,12 @@ def configure_logging(
     root_logger.addHandler(console_handler)
     
     # File handler (optional)
-    if log_file:
-        # Generate timestamped log filename
-        log_dir = os.path.dirname(log_file) if os.path.dirname(log_file) else "."
-        timestamped_log_file = os.path.join(log_dir, get_log_filename(log_file))
+    if log_directory:
+        # Create log directory if it doesn't exist
+        os.makedirs(log_directory, exist_ok=True)
+        
+        # Generate timestamped log filename in the log directory
+        timestamped_log_file = os.path.join(log_directory, get_log_filename(None))
         
         # Use RotatingFileHandler for size-based log rotation
         # Logs rotate when they reach max_bytes, keeping backup_count backups
