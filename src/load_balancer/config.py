@@ -3,11 +3,12 @@ LiteLLM-style YAML configuration loader for load balancer.
 """
 
 import os
-import logging
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
-logger = logging.getLogger(__name__)
+from src.config import get_logger
+
+logger = get_logger(__name__)
 
 
 class ModelConfig(BaseModel):

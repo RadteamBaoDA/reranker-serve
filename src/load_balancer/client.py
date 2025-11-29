@@ -2,14 +2,14 @@
 HTTP client for making requests to remote reranker backends.
 """
 
-import logging
 from typing import Optional, List, Dict, Any, Union
 
 import httpx
 
+from src.config import get_logger
 from .config import ModelConfig
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RerankerClient:

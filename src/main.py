@@ -2,23 +2,85 @@
 Main FastAPI application for the Reranker Service.
 """
 
-import logging
+import os
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from src import __version__
-from src.config import settings
-from src.api import router, health_router
+from src.config import settings, configure_logging, get_logger, bind_request_context, clear_request_context
 
 
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper()),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+# Configure structured logging
+configure_logging(
+    log_level=settings.log_level,
+    json_logs=os.environ.get("RERANKER_JSON_LOGS", "false").lower() == "true",
 )
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+
+# Configure proxy bypass for internal requests
+# This ensures httpx and other HTTP clients don't use proxy for local/internal requests
+def configure_proxy_bypass() -> None:
+    """
+    Configure environment to bypass proxy for internal/local requests.
+    This is important for load balancer communication between services.
+    """
+    # Common internal hosts that should bypass proxy
+    no_proxy_hosts = [
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
+        ".local",
+        ".internal",
+    ]
+    
+    # Get existing NO_PROXY value
+    existing_no_proxy = os.environ.get("NO_PROXY", os.environ.get("no_proxy", ""))
+    
+    # Combine with our internal hosts
+    all_no_proxy = set(existing_no_proxy.split(",")) if existing_no_proxy else set()
+    all_no_proxy.update(no_proxy_hosts)
+    all_no_proxy.discard("")  # Remove empty strings
+    
+    # Set both uppercase and lowercase versions
+    no_proxy_str = ",".join(sorted(all_no_proxy))
+    os.environ["NO_PROXY"] = no_proxy_str
+    os.environ["no_proxy"] = no_proxy_str
+    
+    logger.debug("proxy_bypass_configured", no_proxy=no_proxy_str)
+
+
+# Configure proxy bypass on module load
+configure_proxy_bypass()
+
+
+class RequestContextMiddleware(BaseHTTPMiddleware):
+    """Middleware to bind request context for structured logging."""
+    
+    async def dispatch(self, request: Request, call_next):
+        # Generate request ID
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        
+        # Bind request context for logging
+        bind_request_context(
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            client_ip=request.client.host if request.client else None,
+        )
+        
+        try:
+            response = await call_next(request)
+            # Add request ID to response headers
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            clear_request_context()
 
 
 @asynccontextmanager
@@ -28,10 +90,13 @@ async def lifespan(app: FastAPI):
     Loads the model on startup and cleans up on shutdown.
     """
     # Startup
-    logger.info("Starting Reranker Service...")
-    logger.info(f"Model: {settings.model_name}")
-    logger.info(f"Device: {settings.get_device()}")
-    logger.info(f"Load Balancer: {'Enabled' if settings.enable_load_balancer else 'Disabled'}")
+    logger.info(
+        "starting_reranker_service",
+        model=settings.model_name,
+        device=settings.get_device(),
+        load_balancer_enabled=settings.enable_load_balancer,
+        version=__version__,
+    )
     
     # Initialize load balancer if enabled
     lb_router = None
@@ -40,44 +105,48 @@ async def lifespan(app: FastAPI):
             from src.load_balancer import load_config, initialize_router
             config = load_config(settings.config_path)
             lb_router = await initialize_router(config)
-            logger.info(f"Load balancer initialized with {len(config.model_list)} backends")
-            logger.info(f"Routing strategy: {config.router_settings.routing_strategy}")
+            logger.info(
+                "load_balancer_initialized",
+                backend_count=len(config.model_list),
+                routing_strategy=config.router_settings.routing_strategy,
+            )
         except Exception as e:
-            logger.error(f"Failed to initialize load balancer: {e}")
-            logger.info("Falling back to local model only")
+            logger.error("load_balancer_init_failed", error=str(e))
+            logger.info("falling_back_to_local_model")
     
     # Pre-load the model
     try:
         from src.models import get_reranker_model
         get_reranker_model()
-        logger.info("Model loaded successfully")
+        logger.info("model_loaded_successfully")
     except Exception as e:
-        logger.error(f"Failed to load model on startup: {e}")
+        logger.error("model_load_failed", error=str(e))
         # Don't fail startup, model will be loaded on first request
     
     yield
     
     # Shutdown
-    logger.info("Shutting down Reranker Service...")
+    logger.info("shutting_down_reranker_service")
     
     # Close load balancer
     if lb_router:
         try:
             from src.load_balancer import close_router
             await close_router()
-            logger.info("Load balancer closed")
+            logger.info("load_balancer_closed")
         except Exception as e:
-            logger.error(f"Error closing load balancer: {e}")
+            logger.error("load_balancer_close_error", error=str(e))
     
     try:
         from src.models.reranker import reset_reranker_model
         reset_reranker_model()
     except Exception as e:
-        logger.error(f"Error during shutdown: {e}")
+        logger.error("shutdown_error", error=str(e))
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+    from src.api import router, health_router
     
     app = FastAPI(
         title="Reranker Service",
@@ -122,6 +191,9 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+    
+    # Add request context middleware for structured logging
+    app.add_middleware(RequestContextMiddleware)
     
     # Include routers
     app.include_router(health_router)

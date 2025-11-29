@@ -3,12 +3,11 @@ Load balancer API routes for distributed reranking.
 """
 
 import uuid
-import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 
-from src.config import settings
+from src.config import settings, get_logger
 from src.schemas import (
     RerankRequest,
     RerankResponse,
@@ -24,7 +23,7 @@ from src.schemas import (
 )
 from src.load_balancer import get_router, LoadBalancerRouter
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/lb", tags=["Load Balancer"])
 

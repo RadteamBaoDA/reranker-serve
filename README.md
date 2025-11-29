@@ -12,6 +12,9 @@ A high-performance reranker service using Sentence Transformer models, compatibl
 - 📦 **Offline Mode** - Load models from local disk without internet access
 - 🐳 **Docker Ready** - Includes Dockerfile and docker-compose.yml
 - ⚡ **Production Ready** - Uvicorn ASGI server with multiple workers
+- 📊 **Structured Logging** - Uses [structlog](https://www.structlog.org/) for structured, JSON-compatible logs
+- 🔀 **Load Balancing** - Built-in LiteLLM-style load balancer for multiple backends
+- 🌐 **Proxy Bypass** - Automatic proxy bypass for internal service communication
 
 ## Supported Models
 
@@ -240,6 +243,58 @@ POST /api/v1/rerank
 # Check load balancer statistics
 curl http://localhost:8000/lb/stats
 ```
+
+## Structured Logging
+
+The service uses [structlog](https://www.structlog.org/) for structured, machine-readable logging.
+
+### Console Output (Default)
+
+```
+2025-11-29T09:35:13.329710Z [info     ] starting_reranker_service      model=BAAI/bge-reranker-v2-m3 device=cuda
+2025-11-29T09:35:14.123456Z [info     ] model_loaded_successfully
+```
+
+### JSON Output (Production)
+
+Enable JSON logs for log aggregation systems (ELK, Splunk, etc.):
+
+```bash
+export RERANKER_JSON_LOGS=true
+```
+
+Output:
+```json
+{"event": "starting_reranker_service", "model": "BAAI/bge-reranker-v2-m3", "device": "cuda", "level": "info", "timestamp": "2025-11-29T09:35:13.329710Z"}
+```
+
+### Request Context
+
+Each HTTP request automatically includes:
+- `request_id`: Unique request identifier (also in response headers as `X-Request-ID`)
+- `method`: HTTP method
+- `path`: Request path
+- `client_ip`: Client IP address
+
+### Log Levels
+
+| Level | Description |
+|-------|-------------|
+| `DEBUG` | Detailed debugging information |
+| `INFO` | General operational messages (default) |
+| `WARNING` | Warning messages for potential issues |
+| `ERROR` | Error messages for failures |
+| `CRITICAL` | Critical failures |
+
+## Proxy Bypass
+
+The service automatically configures proxy bypass for internal communications:
+
+- Load balancer requests to backends bypass system proxy
+- `NO_PROXY` environment variable is automatically configured
+- Includes: `localhost`, `127.0.0.1`, `::1`, `0.0.0.0`, `.local`, `.internal`
+
+This ensures reliable communication between reranker service instances in load-balanced deployments.
 
 ## Offline Model Usage
 

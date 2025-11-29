@@ -4,16 +4,15 @@ Supports BAAI/bge-reranker and Qwen3-reranker models.
 """
 
 import os
-import logging
 from typing import Optional, List, Tuple, Union
 from functools import lru_cache
 
 import torch
 from sentence_transformers import CrossEncoder
 
-from src.config import settings
+from src.config import settings, get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RerankerModel:

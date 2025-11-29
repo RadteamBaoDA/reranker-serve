@@ -4,12 +4,11 @@ Compatible with Jina AI and Cohere API formats.
 """
 
 import uuid
-import logging
 from typing import List, Union
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 
-from src.config import settings
+from src.config import settings, get_logger
 from src.models import get_reranker_model, RerankerModel
 from src.schemas import (
     RerankRequest,
@@ -25,7 +24,7 @@ from src.schemas import (
     JinaUsage,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter()
 

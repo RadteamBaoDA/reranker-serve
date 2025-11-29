@@ -5,7 +5,6 @@ Load Balancer Router for distributing requests across multiple reranker backends
 import time
 import random
 import asyncio
-import logging
 from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -13,9 +12,10 @@ from contextlib import asynccontextmanager
 
 import httpx
 
+from src.config import get_logger
 from .config import LoadBalancerConfig, ModelConfig, load_config
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -67,9 +67,19 @@ class LoadBalancerRouter:
         
     async def initialize(self):
         """Initialize async resources."""
+        # Configure httpx client with proxy bypass for internal requests
+        # trust_env=False prevents httpx from using system proxy settings
+        # This is important for internal load balancer communication
         self._http_client = httpx.AsyncClient(
             timeout=self.config.router_settings.default_timeout,
             follow_redirects=True,
+            trust_env=False,  # Ignore proxy environment variables
+        )
+        
+        logger.info(
+            "http_client_initialized",
+            timeout=self.config.router_settings.default_timeout,
+            proxy_bypass=True,
         )
         
         # Start health check task
@@ -127,7 +137,7 @@ class LoadBalancerRouter:
         available = self.get_available_backends()
         
         if not available:
-            logger.warning("No available backends")
+            logger.warning("no_available_backends")
             return None
         
         strategy = self.config.router_settings.routing_strategy
@@ -240,7 +250,11 @@ class LoadBalancerRouter:
             except Exception as e:
                 last_error = e
                 logger.warning(
-                    f"Request to {backend.model_name} failed (attempt {attempt + 1}/{retries + 1}): {e}"
+                    "backend_request_failed",
+                    backend=backend.model_name,
+                    attempt=attempt + 1,
+                    max_attempts=retries + 1,
+                    error=str(e),
                 )
                 
                 # Mark backend as potentially unhealthy
@@ -250,7 +264,7 @@ class LoadBalancerRouter:
                 
                 if stats.consecutive_failures >= 3:
                     stats.is_healthy = False
-                    logger.warning(f"Backend {backend.model_name} marked unhealthy")
+                    logger.warning("backend_marked_unhealthy", backend=backend.model_name)
                 
                 # Wait before retry
                 if attempt < retries:
@@ -258,7 +272,7 @@ class LoadBalancerRouter:
         
         # All retries failed
         if last_error:
-            logger.error(f"All backends failed. Last error: {last_error}")
+            logger.error("all_backends_failed", last_error=str(last_error))
         
         return None, None
     
@@ -320,7 +334,9 @@ class LoadBalancerRouter:
             
             if self.config.router_settings.enable_request_logging:
                 logger.info(
-                    f"Request to {backend.model_name} completed in {latency:.3f}s"
+                    "backend_request_completed",
+                    backend=backend.model_name,
+                    latency_ms=round(latency * 1000, 2),
                 )
             
             return result
@@ -378,12 +394,12 @@ class LoadBalancerRouter:
                     try:
                         await self._check_backend_health(model)
                     except Exception as e:
-                        logger.warning(f"Health check failed for {model.model_name}: {e}")
+                        logger.warning("health_check_failed", backend=model.model_name, error=str(e))
                         
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Health check loop error: {e}")
+                logger.error("health_check_loop_error", error=str(e))
     
     async def _check_backend_health(self, backend: ModelConfig):
         """Check health of a single backend."""
@@ -404,7 +420,7 @@ class LoadBalancerRouter:
             stats = self._stats[backend.model_name]
             
             if is_healthy and not stats.is_healthy:
-                logger.info(f"Backend {backend.model_name} is now healthy")
+                logger.info("backend_now_healthy", backend=backend.model_name)
             
             stats.is_healthy = is_healthy
             
