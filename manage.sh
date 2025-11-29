@@ -12,9 +12,24 @@ ENV_FILE=".env"
 load_env() {
     if [ -f "$ENV_FILE" ]; then
         echo "Loading environment from $ENV_FILE..."
-        set -a  # automatically export all variables
-        source "$ENV_FILE"
-        set +a
+        # Read .env file, strip Windows line endings (CRLF -> LF), and export variables
+        while IFS='=' read -r key value || [ -n "$key" ]; do
+            # Remove carriage return if present
+            key=$(echo "$key" | tr -d '\r')
+            value=$(echo "$value" | tr -d '\r')
+            
+            # Skip empty lines and comments
+            [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+            
+            # Remove leading/trailing whitespace from key
+            key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            
+            # Skip if key is empty after trimming
+            [[ -z "$key" ]] && continue
+            
+            # Export the variable
+            export "$key=$value"
+        done < "$ENV_FILE"
     else
         echo "Warning: $ENV_FILE not found. Using default settings."
     fi
@@ -44,7 +59,9 @@ cleanup_old_logs() {
         echo "Cleaning up log files older than $RETENTION_DAYS days in $LOG_DIR..."
         find "$LOG_DIR" -name "log_*.log*" -type f -mtime +$RETENTION_DAYS -exec rm -f {} \; 2>/dev/null
     fi
-}start() {
+}
+
+start() {
     # Load environment variables first
     load_env
     
@@ -82,6 +99,17 @@ cleanup_old_logs() {
     echo "Service started with PID $PID."
     LOG_DIR=${RERANKER_LOG_DIR:-./logs}
     echo "Logs are being written to $LOG_DIR/log_yyyymmddhhmmss.log"
+    echo ""
+    echo "=== Server Configuration ==="
+    echo "Host: ${RERANKER_HOST:-0.0.0.0}"
+    echo "Port: ${RERANKER_PORT:-8000}"
+    echo "Workers: ${RERANKER_WORKERS:-1}"
+    echo "Model: ${RERANKER_MODEL_NAME:-BAAI/bge-reranker-v2-m3}"
+    echo "Log Level: ${RERANKER_LOG_LEVEL:-INFO}"
+    echo "Log Directory: $LOG_DIR"
+    echo "Trust Env (Proxy): ${RERANKER_TRUST_ENV:-true}"
+    echo "Load Balancer: ${RERANKER_ENABLE_LOAD_BALANCER:-false}"
+    echo "============================="
 }
 
 stop() {
