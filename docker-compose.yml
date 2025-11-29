@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  reranker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - RERANKER_HOST=0.0.0.0
+      - RERANKER_PORT=8000
+      - RERANKER_WORKERS=1
+      - RERANKER_MODEL_NAME=BAAI/bge-reranker-v2-m3
+      - RERANKER_MODEL_CACHE_DIR=/app/models
+      - RERANKER_LOG_LEVEL=INFO
+    volumes:
+      # Mount models directory for persistence
+      - ./models:/app/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+  # GPU-enabled version (uncomment if using NVIDIA GPU)
+  # reranker-gpu:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - RERANKER_DEVICE=cuda
+  #     - RERANKER_USE_FP16=true
+  #   volumes:
+  #     - ./models:/app/models
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #   restart: unless-stopped
