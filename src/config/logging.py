@@ -4,7 +4,10 @@ Provides consistent, structured logging across the application.
 """
 
 import logging
+import logging.handlers
+import os
 import sys
+from datetime import datetime
 from typing import Optional
 
 import structlog
@@ -13,9 +16,23 @@ from structlog.stdlib import ProcessorFormatter
 from .settings import settings
 
 
+def get_log_filename(base_name: str) -> str:
+    """
+    Generate a log filename with timestamp format: log_yyyymmddhhmmss.log
+    
+    Args:
+        base_name: Base name for the log file (ignored, kept for compatibility)
+        
+    Returns:
+        Log filename with timestamp
+    """
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    return f"log_{timestamp}.log"
+
+
 def configure_logging(
     log_level: Optional[str] = None,
-    json_logs: bool = False,
+    json_logs: Optional[bool] = None,
     log_to_file: Optional[str] = None,
 ) -> None:
     """
@@ -25,11 +42,16 @@ def configure_logging(
         log_level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
                    Defaults to settings.log_level.
         json_logs: If True, output JSON format. If False, use console renderer.
+                   Defaults to settings.json_logs.
         log_to_file: Optional file path to also log to.
+                   Defaults to settings.log_file.
     """
     level = log_level or settings.log_level
     log_level_int = getattr(logging, level.upper(), logging.INFO)
     
+    use_json = json_logs if json_logs is not None else settings.json_logs
+    log_file = log_to_file or settings.log_file
+
     # Shared processors for both structlog and stdlib logging
     shared_processors = [
         structlog.contextvars.merge_contextvars,
@@ -43,7 +65,7 @@ def configure_logging(
     ]
     
     # Choose renderer based on environment
-    if json_logs:
+    if use_json:
         renderer = structlog.processors.JSONRenderer()
     else:
         renderer = structlog.dev.ConsoleRenderer(
@@ -83,8 +105,20 @@ def configure_logging(
     root_logger.addHandler(console_handler)
     
     # File handler (optional)
-    if log_to_file:
-        file_handler = logging.FileHandler(log_to_file, encoding="utf-8")
+    if log_file:
+        # Generate timestamped log filename
+        log_dir = os.path.dirname(log_file) if os.path.dirname(log_file) else "."
+        timestamped_log_file = os.path.join(log_dir, get_log_filename(log_file))
+        
+        # Use RotatingFileHandler for size-based log rotation
+        # Logs rotate when they reach max_bytes, keeping backup_count backups
+        # Old logs beyond retention_days are cleaned up separately
+        file_handler = logging.handlers.RotatingFileHandler(
+            timestamped_log_file,
+            maxBytes=settings.log_max_bytes,
+            backupCount=settings.log_backup_count,
+            encoding="utf-8"
+        )
         # Use JSON for file logs
         file_formatter = ProcessorFormatter(
             foreign_pre_chain=shared_processors,

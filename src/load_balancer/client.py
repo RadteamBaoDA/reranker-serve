@@ -6,7 +6,7 @@ from typing import Optional, List, Dict, Any, Union
 
 import httpx
 
-from src.config import get_logger
+from src.config import get_logger, settings
 from .config import ModelConfig
 
 logger = get_logger(__name__)
@@ -39,6 +39,7 @@ class RerankerClient:
             self._http_client = httpx.AsyncClient(
                 timeout=self.backend.timeout,
                 follow_redirects=True,
+                trust_env=settings.trust_env,  # Configurable proxy settings
             )
         return self
     
