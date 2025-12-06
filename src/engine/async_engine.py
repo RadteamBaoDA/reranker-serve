@@ -199,9 +199,13 @@ class AsyncRerankerEngine:
                 model_type=type(self._model).__name__,
             )
     
+    def _is_qwen3_reranker(self) -> bool:
+        """Check if the model is a Qwen3-Reranker model."""
+        model_lower = self.model_name_or_path.lower()
+        return "qwen3" in model_lower and "reranker" in model_lower
+    
     def _load_model_sync(self):
         """Synchronous model loading (runs in thread pool)."""
-        from sentence_transformers import CrossEncoder
         import os
         
         # Force CPU-only mode if configured
@@ -221,11 +225,11 @@ class AsyncRerankerEngine:
             os.environ["HF_HUB_OFFLINE"] = "1"
             os.environ["TRANSFORMERS_OFFLINE"] = "1"
         
+        # Set cache directory (HF_HOME is the unified cache location in transformers v5+)
         if settings.model_cache_dir:
             cache_dir = os.path.abspath(settings.model_cache_dir)
             os.makedirs(cache_dir, exist_ok=True)
             os.environ["HF_HOME"] = cache_dir
-            os.environ["TRANSFORMERS_CACHE"] = cache_dir
             os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
         
         # MPS optimizations
@@ -233,6 +237,31 @@ class AsyncRerankerEngine:
             if settings.mps_fallback_to_cpu:
                 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
             os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
+        
+        # Check if Qwen3-Reranker model
+        if self._is_qwen3_reranker():
+            logger.info(f"Detected Qwen3-Reranker model: {self.model_name_or_path}")
+            return self._load_qwen3_model_sync()
+        else:
+            logger.info(f"Using standard CrossEncoder model: {self.model_name_or_path}")
+            return self._load_crossencoder_model_sync()
+    
+    def _load_qwen3_model_sync(self):
+        """Load Qwen3-Reranker model."""
+        from src.models.qwen3_reranker import Qwen3Reranker
+        
+        model = Qwen3Reranker(
+            model_name_or_path=self.model_name_or_path,
+            device=self.device,
+            max_length=self.max_length,
+            use_fp16=self.use_fp16,
+        )
+        model.load()
+        return model
+    
+    def _load_crossencoder_model_sync(self):
+        """Load standard CrossEncoder model."""
+        from sentence_transformers import CrossEncoder
         
         # Prepare model kwargs
         model_kwargs = {
@@ -248,6 +277,53 @@ class AsyncRerankerEngine:
         
         # Load model
         model = CrossEncoder(model_source, **model_kwargs)
+        
+        # Fix padding token for models that don't have one (e.g., Qwen3-reranker)
+        # This is required for batch processing with batch_size > 1
+        tokenizer = getattr(model, 'tokenizer', None)
+        if tokenizer is not None:
+            logger.debug(
+                "tokenizer_check",
+                has_pad_token=tokenizer.pad_token is not None,
+                pad_token=tokenizer.pad_token,
+                has_eos_token=tokenizer.eos_token is not None,
+                eos_token=tokenizer.eos_token,
+                model=model_source,
+            )
+            
+            if tokenizer.pad_token is None or tokenizer.pad_token_id is None:
+                if tokenizer.eos_token is not None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                    tokenizer.pad_token_id = tokenizer.eos_token_id
+                    logger.info(
+                        "padding_token_set_from_eos",
+                        pad_token=tokenizer.pad_token,
+                        pad_token_id=tokenizer.pad_token_id,
+                        model=model_source,
+                    )
+                elif tokenizer.unk_token is not None:
+                    tokenizer.pad_token = tokenizer.unk_token
+                    tokenizer.pad_token_id = tokenizer.unk_token_id
+                    logger.info(
+                        "padding_token_set_from_unk",
+                        pad_token=tokenizer.pad_token,
+                        pad_token_id=tokenizer.pad_token_id,
+                        model=model_source,
+                    )
+                else:
+                    # Fallback: add a new pad token
+                    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+                    logger.info(
+                        "padding_token_added",
+                        pad_token=tokenizer.pad_token,
+                        model=model_source,
+                    )
+                
+                # Also set padding_side for proper batch handling
+                if not hasattr(tokenizer, 'padding_side') or tokenizer.padding_side is None:
+                    tokenizer.padding_side = 'right'
+        else:
+            logger.warning("no_tokenizer_found", model=model_source)
         
         # Apply dtype optimizations
         if self.device != "cpu" and hasattr(model, 'model'):
@@ -479,6 +555,7 @@ class AsyncRerankerEngine:
         Synchronous batch inference (runs in thread pool).
         
         Processes all requests in the batch together for efficiency.
+        Handles both CrossEncoder and Qwen3Reranker models.
         """
         import numpy as np
         import threading
@@ -488,75 +565,96 @@ class AsyncRerankerEngine:
             batch_id=batch.batch_id,
             thread_id=threading.current_thread().name,
             num_requests=len(batch.requests),
+            is_qwen3=self._is_qwen3_reranker(),
         )
         
         all_results = []
         
-        # Process each request (could be further optimized with mega-batching)
+        # Check if using Qwen3Reranker (has rerank method) or CrossEncoder (has predict method)
+        is_qwen3 = self._is_qwen3_reranker()
+        
+        # Process each request
         for req_idx, request in enumerate(batch.requests):
-            # Create query-document pairs
-            pairs = [[request.query, doc] for doc in request.documents]
-            
             logger.debug(
                 "processing_request_in_batch",
                 batch_id=batch.batch_id,
                 request_id=request.request_id,
                 request_index=req_idx,
-                num_pairs=len(pairs),
+                num_documents=len(request.documents),
                 query_preview=request.query[:100] if request.query else None,
             )
             
             try:
-                # Get scores
                 inference_start = time.time()
-                scores = self._model.predict(
-                    pairs,
-                    batch_size=settings.batch_size,
-                    show_progress_bar=False,
-                )
-                inference_time = time.time() - inference_start
                 
-                logger.debug(
-                    "model_predict_complete",
-                    request_id=request.request_id,
-                    num_scores=len(scores),
-                    inference_time=inference_time,
-                    raw_scores_sample=list(scores[:3]) if len(scores) > 0 else [],
-                )
-                
-                # Normalize if configured
-                if settings.normalize_scores:
-                    scores_array = np.array(scores)
-                    scores = (1 / (1 + np.exp(-scores_array))).tolist()
-                    logger.debug(
-                        "scores_normalized",
-                        request_id=request.request_id,
-                        normalized_scores_sample=scores[:3] if len(scores) > 0 else [],
-                    )
-                
-                # Build results
-                results = []
-                for idx, score in enumerate(scores):
-                    result = {
-                        "index": idx,
-                        "relevance_score": float(score),
-                    }
-                    if request.return_documents:
-                        result["document"] = {"text": request.documents[idx]}
-                    results.append(result)
-                
-                # Sort by score
-                results.sort(key=lambda x: x["relevance_score"], reverse=True)
-                
-                # Apply top_k
-                if request.top_k is not None and request.top_k > 0:
-                    results = results[:request.top_k]
-                    logger.debug(
-                        "top_k_applied",
-                        request_id=request.request_id,
+                if is_qwen3:
+                    # Use Qwen3Reranker's rerank method directly
+                    results = self._model.rerank(
+                        query=request.query,
+                        documents=request.documents,
                         top_k=request.top_k,
-                        results_count=len(results),
+                        return_documents=request.return_documents,
                     )
+                    inference_time = time.time() - inference_start
+                    
+                    logger.debug(
+                        "qwen3_rerank_complete",
+                        request_id=request.request_id,
+                        num_results=len(results),
+                        inference_time=inference_time,
+                    )
+                else:
+                    # Use CrossEncoder's predict method
+                    pairs = [[request.query, doc] for doc in request.documents]
+                    
+                    scores = self._model.predict(
+                        pairs,
+                        batch_size=settings.batch_size,
+                        show_progress_bar=False,
+                    )
+                    inference_time = time.time() - inference_start
+                    
+                    logger.debug(
+                        "model_predict_complete",
+                        request_id=request.request_id,
+                        num_scores=len(scores),
+                        inference_time=inference_time,
+                        raw_scores_sample=list(scores[:3]) if len(scores) > 0 else [],
+                    )
+                    
+                    # Normalize if configured
+                    if settings.normalize_scores:
+                        scores_array = np.array(scores)
+                        scores = (1 / (1 + np.exp(-scores_array))).tolist()
+                        logger.debug(
+                            "scores_normalized",
+                            request_id=request.request_id,
+                            normalized_scores_sample=scores[:3] if len(scores) > 0 else [],
+                        )
+                    
+                    # Build results
+                    results = []
+                    for idx, score in enumerate(scores):
+                        result = {
+                            "index": idx,
+                            "relevance_score": float(score),
+                        }
+                        if request.return_documents:
+                            result["document"] = {"text": request.documents[idx]}
+                        results.append(result)
+                    
+                    # Sort by score
+                    results.sort(key=lambda x: x["relevance_score"], reverse=True)
+                    
+                    # Apply top_k
+                    if request.top_k is not None and request.top_k > 0:
+                        results = results[:request.top_k]
+                        logger.debug(
+                            "top_k_applied",
+                            request_id=request.request_id,
+                            top_k=request.top_k,
+                            results_count=len(results),
+                        )
                 
                 all_results.append(results)
                 

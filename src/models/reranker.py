@@ -76,13 +76,11 @@ class RerankerModel:
             os.environ["HF_HUB_OFFLINE"] = "1"
             os.environ["TRANSFORMERS_OFFLINE"] = "1"
         
-        # Set cache directory (use absolute path for consistency)
+        # Set cache directory (HF_HOME is the unified cache location in transformers v5+)
         if settings.model_cache_dir:
             cache_dir = os.path.abspath(settings.model_cache_dir)
             os.makedirs(cache_dir, exist_ok=True)
             os.environ["HF_HOME"] = cache_dir
-            os.environ["HF_HUB_CACHE"] = cache_dir
-            os.environ["TRANSFORMERS_CACHE"] = cache_dir
             os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_dir
         
         # MPS-specific optimizations for Apple Silicon
@@ -218,6 +216,53 @@ class RerankerModel:
                 **model_kwargs
             )
             
+            # Fix padding token for models that don't have one (e.g., Qwen3-reranker)
+            # This is required for batch processing with batch_size > 1
+            tokenizer = getattr(self._model, 'tokenizer', None)
+            if tokenizer is not None:
+                logger.debug(
+                    "tokenizer_check",
+                    has_pad_token=tokenizer.pad_token is not None,
+                    pad_token=tokenizer.pad_token,
+                    has_eos_token=tokenizer.eos_token is not None,
+                    eos_token=tokenizer.eos_token,
+                    model=model_source,
+                )
+                
+                if tokenizer.pad_token is None or tokenizer.pad_token_id is None:
+                    if tokenizer.eos_token is not None:
+                        tokenizer.pad_token = tokenizer.eos_token
+                        tokenizer.pad_token_id = tokenizer.eos_token_id
+                        logger.info(
+                            "padding_token_set_from_eos",
+                            pad_token=tokenizer.pad_token,
+                            pad_token_id=tokenizer.pad_token_id,
+                            model=model_source,
+                        )
+                    elif tokenizer.unk_token is not None:
+                        tokenizer.pad_token = tokenizer.unk_token
+                        tokenizer.pad_token_id = tokenizer.unk_token_id
+                        logger.info(
+                            "padding_token_set_from_unk",
+                            pad_token=tokenizer.pad_token,
+                            pad_token_id=tokenizer.pad_token_id,
+                            model=model_source,
+                        )
+                    else:
+                        # Fallback: add a new pad token
+                        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+                        logger.info(
+                            "padding_token_added",
+                            pad_token=tokenizer.pad_token,
+                            model=model_source,
+                        )
+                    
+                    # Also set padding_side for proper batch handling
+                    if not hasattr(tokenizer, 'padding_side') or tokenizer.padding_side is None:
+                        tokenizer.padding_side = 'right'
+            else:
+                logger.warning("no_tokenizer_found", model=model_source)
+            
             # Move to device and set dtype
             if self.device != "cpu" and hasattr(self._model, 'model'):
                 dtype = settings.get_torch_dtype()
@@ -335,16 +380,37 @@ class RerankerModel:
             logger.info("Model unloaded")
 
 
-# Singleton instance
-_reranker_instance: Optional[RerankerModel] = None
+# Singleton instance - can be RerankerModel or Qwen3Reranker
+_reranker_instance = None
 
 
-def get_reranker_model() -> RerankerModel:
-    """Get or create the singleton reranker model instance."""
+def _is_qwen3_reranker(model_name: str) -> bool:
+    """Check if the model is a Qwen3-Reranker model."""
+    model_lower = model_name.lower()
+    return "qwen3" in model_lower and "reranker" in model_lower
+
+
+def get_reranker_model():
+    """
+    Get or create the singleton reranker model instance.
+    
+    Automatically selects the correct model class based on model name:
+    - Qwen3Reranker for Qwen3-Reranker models (uses CausalLM architecture)
+    - RerankerModel for standard CrossEncoder models (BAAI/bge-reranker, etc.)
+    """
     global _reranker_instance
     
     if _reranker_instance is None:
-        _reranker_instance = RerankerModel()
+        model_name = settings.model_name
+        
+        if _is_qwen3_reranker(model_name):
+            logger.info(f"Detected Qwen3-Reranker model: {model_name}")
+            from .qwen3_reranker import Qwen3Reranker
+            _reranker_instance = Qwen3Reranker()
+        else:
+            logger.info(f"Using standard CrossEncoder model: {model_name}")
+            _reranker_instance = RerankerModel()
+        
         _reranker_instance.load()
     
     return _reranker_instance
