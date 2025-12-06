@@ -89,6 +89,10 @@ class Settings(BaseSettings):
         default=None,
         description="Device to use: 'cuda', 'mps', 'cpu', or None for auto-detect"
     )
+    force_cpu_only: bool = Field(
+        default=False,
+        description="Force CPU-only mode. Disables CUDA/MPS and sets CUDA_VISIBLE_DEVICES=''"
+    )
     use_fp16: bool = Field(
         default=True,
         description="Use FP16 for faster inference (if supported)"
@@ -137,6 +141,10 @@ class Settings(BaseSettings):
     
     def get_device(self) -> str:
         """Auto-detect the best available device."""
+        # Force CPU mode if configured
+        if self.force_cpu_only:
+            return "cpu"
+        
         if self.device:
             return self.device
         

@@ -44,9 +44,33 @@ class RerankerModel:
         
         self._model: Optional[CrossEncoder] = None
         self._setup_environment()
+        
+        logger.debug(
+            "reranker_model_init",
+            model_name_or_path=self.model_name_or_path,
+            device=self.device,
+            max_length=self.max_length,
+            use_fp16=self.use_fp16,
+            force_cpu_only=settings.force_cpu_only,
+        )
     
     def _setup_environment(self):
         """Set up environment variables for optimal performance."""
+        # Force CPU-only mode if configured
+        # This must be done BEFORE torch is imported in some cases
+        if settings.force_cpu_only:
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+            # Disable MPS on Apple Silicon
+            os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+            # Force CPU for sentence-transformers
+            os.environ["SENTENCE_TRANSFORMERS_DEVICE"] = "cpu"
+            logger.debug(
+                "cpu_only_mode_enabled",
+                cuda_visible_devices="",
+                sentence_transformers_device="cpu",
+            )
+        
         # Set offline mode if configured
         if settings.use_offline_mode:
             os.environ["HF_HUB_OFFLINE"] = "1"

@@ -200,7 +200,7 @@ async def lifespan(app: FastAPI):
             )
             logger.debug(
                 "async_engine_ready",
-                engine_running=engine.is_running(),
+                engine_running=engine.is_running,
             )
         else:
             logger.debug("sync_model_loading_start")

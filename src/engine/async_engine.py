@@ -204,6 +204,18 @@ class AsyncRerankerEngine:
         from sentence_transformers import CrossEncoder
         import os
         
+        # Force CPU-only mode if configured
+        if settings.force_cpu_only:
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+            os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+            os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+            os.environ["SENTENCE_TRANSFORMERS_DEVICE"] = "cpu"
+            logger.debug(
+                "cpu_only_mode_enforced",
+                cuda_visible_devices="",
+                sentence_transformers_device="cpu",
+            )
+        
         # Set up environment
         if settings.use_offline_mode:
             os.environ["HF_HUB_OFFLINE"] = "1"
