@@ -5,16 +5,48 @@ A high-performance reranker service using Sentence Transformer models, compatibl
 ## Features
 
 - 🚀 **FastAPI-based REST API** - High-performance async API server
+- ⚡ **Async Engine (vLLM-inspired)** - Concurrent request handling with automatic batching
+- 📊 **Request Queue & Batching** - Optimal GPU utilization with dynamic batch processing
 - 🔄 **API Compatibility** - Compatible with Jina AI and Cohere reranker APIs
 - 🤖 **Multiple Model Support** - Supports BAAI/bge-reranker and Qwen3-reranker models
 - 💻 **Multi-platform** - Optimized for CUDA, Apple Silicon (MPS), and CPU
 - 🪟 **Cross-platform Scripts** - Full support for Windows, Linux, and macOS
 - 📦 **Offline Mode** - Load models from local disk without internet access
 - 🐳 **Docker Ready** - Includes Dockerfile and docker-compose.yml
-- ⚡ **Production Ready** - Uvicorn ASGI server with multiple workers
+- ⚡ **Production Ready** - Uvicorn ASGI server with configurable workers
 - 📊 **Structured Logging** - Uses [structlog](https://www.structlog.org/) for structured, JSON-compatible logs
 - 🔀 **Load Balancing** - Built-in LiteLLM-style load balancer for multiple backends
 - 🌐 **Proxy Bypass** - Automatic proxy bypass for internal service communication
+
+## Architecture (vLLM-inspired)
+
+The service implements a high-performance architecture inspired by vLLM:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      FastAPI Application                        │
+├─────────────────────────────────────────────────────────────────┤
+│  Request 1 ──┐                                                  │
+│  Request 2 ──┼──▶ Request Queue ──▶ Batch Processor ──┐        │
+│  Request 3 ──┘        │                                │        │
+│       ...             │                                ▼        │
+│                       │                      ┌─────────────────┐│
+│                       │                      │  Thread Pool    ││
+│               ┌───────▼───────┐              │  (Inference)    ││
+│               │ Batch Creator │              │                 ││
+│               │ (Async Loop)  │──────────────▶  CrossEncoder  ││
+│               └───────────────┘              │    .predict()   ││
+│                                              └─────────────────┘│
+│  Result Future ◀── Result Distribution ◀── Batch Results       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+1. **Async Request Queue**: Priority-based scheduling with configurable queue size
+2. **Dynamic Batching**: Requests are batched together (configurable wait timeout)
+3. **Thread Pool Executor**: Non-blocking model inference
+4. **Concurrent Batch Processing**: Multiple batches can be processed simultaneously
 
 ## Supported Models
 
@@ -147,7 +179,7 @@ Configuration is done through environment variables with the `RERANKER_` prefix:
 |----------|-------------|---------|
 | `RERANKER_HOST` | Server host | `0.0.0.0` |
 | `RERANKER_PORT` | Server port | `8000` |
-| `RERANKER_WORKERS` | Number of workers | `1` |
+| `RERANKER_WORKERS` | Number of uvicorn workers | `1` |
 | `RERANKER_MODEL_NAME` | Model name or HuggingFace ID | `BAAI/bge-reranker-v2-m3` |
 | `RERANKER_MODEL_PATH` | Local model path | `None` |
 | `RERANKER_MODEL_CACHE_DIR` | Model cache directory | `./models` |
@@ -161,13 +193,32 @@ Configuration is done through environment variables with the `RERANKER_` prefix:
 | `RERANKER_LOAD_BALANCER_ENABLED` | Enable load balancer mode | `false` |
 | `RERANKER_CONFIG_PATH` | Path to YAML config file | `./reranker_config.yaml` |
 
+### Async Engine Configuration (vLLM-inspired)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `RERANKER_ENABLE_ASYNC_ENGINE` | Enable async engine for concurrent requests | `true` |
+| `RERANKER_MAX_CONCURRENT_BATCHES` | Max batches processing simultaneously | `2` |
+| `RERANKER_INFERENCE_THREADS` | Thread pool size for inference | `1` |
+| `RERANKER_MAX_BATCH_SIZE` | Max requests per batch | `32` |
+| `RERANKER_MAX_BATCH_PAIRS` | Max query-doc pairs per batch | `1024` |
+| `RERANKER_BATCH_WAIT_TIMEOUT` | Wait time (seconds) to batch requests | `0.01` |
+| `RERANKER_MAX_QUEUE_SIZE` | Max pending requests in queue | `1000` |
+| `RERANKER_REQUEST_TIMEOUT` | Request timeout in seconds | `60.0` |
+
 ### Example `.env` file
 
 ```env
 RERANKER_PORT=8000
 RERANKER_MODEL_NAME=BAAI/bge-reranker-v2-m3
-RERANKER_DEVICE=mps
+RERANKER_DEVICE=cuda
 RERANKER_LOG_LEVEL=INFO
+
+# High-performance async settings
+RERANKER_ENABLE_ASYNC_ENGINE=true
+RERANKER_MAX_CONCURRENT_BATCHES=4
+RERANKER_MAX_BATCH_PAIRS=2048
+RERANKER_BATCH_WAIT_TIMEOUT=0.005
 ```
 
 ## Load Balancer (LiteLLM-Style)

@@ -50,6 +50,40 @@ class Settings(BaseSettings):
     batch_size: int = Field(default=32, description="Batch size for inference")
     normalize_scores: bool = Field(default=True, description="Normalize reranker scores to 0-1")
     
+    # Async Engine / Concurrency Configuration (vLLM-inspired)
+    enable_async_engine: bool = Field(
+        default=True,
+        description="Enable async engine for concurrent request handling"
+    )
+    max_concurrent_batches: int = Field(
+        default=2,
+        description="Maximum number of batches processing concurrently"
+    )
+    inference_threads: int = Field(
+        default=1,
+        description="Number of threads for model inference (increase for CPU-bound workloads)"
+    )
+    max_batch_size: int = Field(
+        default=32,
+        description="Maximum number of requests per batch"
+    )
+    max_batch_pairs: int = Field(
+        default=1024,
+        description="Maximum query-document pairs per batch"
+    )
+    batch_wait_timeout: float = Field(
+        default=0.01,
+        description="Time (seconds) to wait for batching requests together"
+    )
+    max_queue_size: int = Field(
+        default=1000,
+        description="Maximum number of requests in queue"
+    )
+    request_timeout: float = Field(
+        default=60.0,
+        description="Request timeout in seconds"
+    )
+    
     # Device Configuration
     device: Optional[str] = Field(
         default=None,

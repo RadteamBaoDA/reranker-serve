@@ -114,11 +114,21 @@ async def lifespan(app: FastAPI):
             logger.error("load_balancer_init_failed", error=str(e))
             logger.info("falling_back_to_local_model")
     
-    # Pre-load the model
+    # Pre-load the model (async engine or sync model)
     try:
-        from src.models import get_reranker_model
-        get_reranker_model()
-        logger.info("model_loaded_successfully")
+        if settings.enable_async_engine:
+            from src.engine import get_async_engine
+            engine = await get_async_engine()
+            logger.info(
+                "async_engine_started",
+                model=settings.model_name,
+                device=settings.get_device(),
+                max_concurrent_batches=settings.max_concurrent_batches,
+            )
+        else:
+            from src.models import get_reranker_model
+            get_reranker_model()
+            logger.info("sync_model_loaded_successfully")
     except Exception as e:
         logger.error("model_load_failed", error=str(e))
         # Don't fail startup, model will be loaded on first request
@@ -137,9 +147,16 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error("load_balancer_close_error", error=str(e))
     
+    # Stop async engine or unload sync model
     try:
-        from src.models.reranker import reset_reranker_model
-        reset_reranker_model()
+        if settings.enable_async_engine:
+            from src.engine import reset_async_engine
+            await reset_async_engine()
+            logger.info("async_engine_stopped")
+        else:
+            from src.models.reranker import reset_reranker_model
+            reset_reranker_model()
+            logger.info("sync_model_unloaded")
     except Exception as e:
         logger.error("shutdown_error", error=str(e))
 
@@ -152,6 +169,11 @@ def create_app() -> FastAPI:
         title="Reranker Service",
         description="""
         A high-performance reranker service using Sentence Transformer models.
+        
+        ## Architecture (vLLM-inspired)
+        - **Async Engine**: Concurrent request handling with automatic batching
+        - **Request Queue**: Priority-based scheduling with configurable batch size
+        - **Thread Pool**: Non-blocking model inference for high throughput
         
         ## Supported Models
         - **BAAI/bge-reranker-v2-m3** - Multilingual reranker
@@ -169,11 +191,18 @@ def create_app() -> FastAPI:
         - Routing strategies: weighted-random, round-robin, least-busy, latency-based, priority-failover
         
         ## Features
+        - **Concurrent Request Handling**: Handle multiple requests simultaneously
+        - **Automatic Batching**: Requests are batched for optimal GPU utilization
         - Offline model loading support
         - Apple Silicon (MPS) optimization
         - CUDA acceleration
         - Automatic device detection
         - Load balancing across multiple backends
+        
+        ## Monitoring
+        - `/stats` - Engine statistics and request queue metrics
+        - `/ready` - Kubernetes readiness probe
+        - `/live` - Kubernetes liveness probe
         """,
         version=__version__,
         lifespan=lifespan,
@@ -212,8 +241,30 @@ app = create_app()
 
 
 def run_server():
-    """Run the server using uvicorn."""
+    """
+    Run the server using uvicorn.
+    
+    For production with multiple workers, the async engine is initialized
+    per-worker with proper isolation. Each worker has its own:
+    - Model instance
+    - Request queue
+    - Thread pool for inference
+    
+    For maximum performance:
+    - Use workers=1 with async engine (handles concurrency internally)
+    - Or use workers>1 for multi-process scaling (each has own GPU memory)
+    """
     import uvicorn
+    
+    # Log configuration
+    logger.info(
+        "starting_uvicorn_server",
+        host=settings.host,
+        port=settings.port,
+        workers=settings.workers,
+        async_engine=settings.enable_async_engine,
+        max_concurrent_batches=settings.max_concurrent_batches,
+    )
     
     uvicorn.run(
         "src.main:app",
@@ -222,6 +273,10 @@ def run_server():
         workers=settings.workers,
         reload=settings.reload,
         log_level=settings.log_level.lower(),
+        # Enable for production
+        access_log=settings.log_level.upper() == "DEBUG",
+        # Timeout settings
+        timeout_keep_alive=30,
     )
 
 

@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 # Set test environment variables before importing app modules
 os.environ["RERANKER_USE_OFFLINE_MODE"] = "false"
 os.environ["RERANKER_MODEL_NAME"] = "BAAI/bge-reranker-v2-m3"
+# Disable async engine for tests to use simple mocking
+os.environ["RERANKER_ENABLE_ASYNC_ENGINE"] = "false"
 
 # Create mock torch module to avoid DLL loading issues on Windows
 mock_torch = MagicMock()

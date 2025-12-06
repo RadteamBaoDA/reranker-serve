@@ -1,6 +1,7 @@
 """
 API routes for reranker service.
 Compatible with Jina AI and Cohere API formats.
+Optimized for async concurrent request handling.
 """
 
 import uuid
@@ -9,7 +10,6 @@ from typing import List, Union
 from fastapi import APIRouter, HTTPException, Depends, Header
 
 from src.config import settings, get_logger
-from src.models import get_reranker_model, RerankerModel
 from src.schemas import (
     RerankRequest,
     RerankResponse,
@@ -27,6 +27,39 @@ from src.schemas import (
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+
+async def get_rerank_results(
+    query: str,
+    documents: List[str],
+    top_k: int = None,
+    return_documents: bool = True,
+    request_id: str = None,
+) -> List[dict]:
+    """
+    Get rerank results using async engine or fallback to sync model.
+    Provides a unified interface for both modes.
+    """
+    if settings.enable_async_engine:
+        from src.engine import get_async_engine
+        engine = await get_async_engine()
+        return await engine.rerank(
+            query=query,
+            documents=documents,
+            top_k=top_k,
+            return_documents=return_documents,
+            request_id=request_id,
+        )
+    else:
+        # Fallback to sync model for compatibility
+        from src.models import get_reranker_model
+        model = get_reranker_model()
+        return model.rerank(
+            query=query,
+            documents=documents,
+            top_k=top_k,
+            return_documents=return_documents,
+        )
 
 
 def verify_api_key(authorization: str = Header(default=None)) -> bool:
@@ -72,15 +105,17 @@ async def rerank(
     Rerank documents based on relevance to a query.
     
     This is the native API format for the reranker service.
+    Supports concurrent request handling with automatic batching.
     """
     try:
-        model = get_reranker_model()
+        request_id = str(uuid.uuid4())
         
-        results = model.rerank(
+        results = await get_rerank_results(
             query=request.query,
             documents=request.documents,
             top_k=request.top_n,
             return_documents=request.return_documents,
+            request_id=request_id,
         )
         
         # Convert to response format
@@ -113,18 +148,20 @@ async def cohere_rerank(
     Cohere-compatible rerank endpoint.
     
     Compatible with Cohere's /v1/rerank API format.
+    Supports concurrent request handling with automatic batching.
     """
     try:
-        model = get_reranker_model()
+        request_id = str(uuid.uuid4())
         
         # Extract document texts
         documents = extract_document_texts(request.documents)
         
-        results = model.rerank(
+        results = await get_rerank_results(
             query=request.query,
             documents=documents,
             top_k=request.top_n,
             return_documents=request.return_documents,
+            request_id=request_id,
         )
         
         # Convert to Cohere response format
@@ -138,7 +175,7 @@ async def cohere_rerank(
         ]
         
         return CohereRerankResponse(
-            id=str(uuid.uuid4()),
+            id=request_id,
             results=cohere_results,
             meta={
                 "api_version": {"version": "1"},
@@ -160,18 +197,20 @@ async def jina_rerank(
     Jina AI-compatible rerank endpoint.
     
     Compatible with Jina AI's reranker API format.
+    Supports concurrent request handling with automatic batching.
     """
     try:
-        model = get_reranker_model()
+        request_id = str(uuid.uuid4())
         
         # Extract document texts
         documents = extract_document_texts(request.documents)
         
-        results = model.rerank(
+        results = await get_rerank_results(
             query=request.query,
             documents=documents,
             top_k=request.top_n,
             return_documents=request.return_documents,
+            request_id=request_id,
         )
         
         # Convert to Jina response format
