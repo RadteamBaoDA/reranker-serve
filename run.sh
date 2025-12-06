@@ -17,7 +17,16 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-VENV_DIR="venv"
+VENV_DIR=".venv"
+ENV_FILE=".env"
+
+# Load environment variables from .env file if it exists
+if [ -f "$ENV_FILE" ]; then
+    echo -e "${YELLOW}Loading environment variables from $ENV_FILE...${NC}"
+    set -a  # automatically export all variables
+    source "$ENV_FILE"
+    set +a
+fi
 
 # Default settings
 HOST="${RERANKER_HOST:-0.0.0.0}"
@@ -55,6 +64,10 @@ while [[ $# -gt 0 ]]; do
             echo "  --host HOST        Server host (default: 0.0.0.0)"
             echo ""
             echo "Environment Variables:"
+            echo "  Variables are loaded from .env file if present."
+            echo "  See .env.example for all available options."
+            echo ""
+            echo "  Key variables:"
             echo "  RERANKER_HOST           Server host"
             echo "  RERANKER_PORT           Server port"
             echo "  RERANKER_WORKERS        Number of workers"
@@ -63,6 +76,8 @@ while [[ $# -gt 0 ]]; do
             echo "  RERANKER_USE_OFFLINE_MODE  Use offline mode"
             echo "  RERANKER_DEVICE         Device (cuda, mps, cpu)"
             echo "  RERANKER_API_KEY        API key for authentication"
+            echo "  RERANKER_LOG_LEVEL      Log level (DEBUG, INFO, WARNING, ERROR)"
+            echo "  RERANKER_ENABLE_ASYNC_ENGINE  Enable async engine"
             exit 0
             ;;
         *)

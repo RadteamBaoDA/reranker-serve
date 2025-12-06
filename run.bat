@@ -9,7 +9,20 @@ REM ============================================================================
 setlocal enabledelayedexpansion
 
 set "VENV_DIR=venv"
+set "ENV_FILE=.env"
 set "DEV_MODE=false"
+
+REM Load environment variables from .env file if it exists
+if exist "%ENV_FILE%" (
+    echo Loading environment variables from %ENV_FILE%...
+    for /f "usebackq tokens=1,* delims==" %%a in ("%ENV_FILE%") do (
+        REM Skip comments and empty lines
+        set "line=%%a"
+        if not "!line:~0,1!"=="#" if not "!line!"=="" (
+            set "%%a=%%b"
+        )
+    )
+)
 
 REM Default settings
 if not defined RERANKER_HOST set "RERANKER_HOST=0.0.0.0"
@@ -63,6 +76,10 @@ echo   --workers N        Number of workers (default: 1)
 echo   --port PORT        Server port (default: 8000)
 echo   --host HOST        Server host (default: 0.0.0.0)
 echo   --help, -h         Show this help message
+echo.
+echo Environment Variables:
+echo   Variables are loaded from .env file if present.
+echo   See .env.example for all available options.
 echo.
 exit /b 0
 

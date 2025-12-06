@@ -17,6 +17,26 @@ $ErrorActionPreference = "Stop"
 
 # Configuration
 $VENV_DIR = "venv"
+$ENV_FILE = ".env"
+
+# Load environment variables from .env file if it exists
+if (Test-Path $ENV_FILE) {
+    Write-ColorOutput Yellow "Loading environment variables from $ENV_FILE..."
+    Get-Content $ENV_FILE | ForEach-Object {
+        $line = $_.Trim()
+        # Skip comments and empty lines
+        if ($line -and -not $line.StartsWith("#")) {
+            $parts = $line -split "=", 2
+            if ($parts.Count -eq 2) {
+                $key = $parts[0].Trim()
+                $value = $parts[1].Trim()
+                # Remove quotes if present
+                $value = $value -replace '^["'']|["'']$', ''
+                [Environment]::SetEnvironmentVariable($key, $value, "Process")
+            }
+        }
+    }
+}
 
 # Default settings from environment or defaults
 $DEFAULT_HOST = if ($env:RERANKER_HOST) { $env:RERANKER_HOST } else { "0.0.0.0" }
@@ -48,6 +68,10 @@ if ($Help) {
     Write-Output "  -Help             Show this help message"
     Write-Output ""
     Write-Output "Environment Variables:"
+    Write-Output "  Variables are loaded from .env file if present."
+    Write-Output "  See .env.example for all available options."
+    Write-Output ""
+    Write-Output "  Key variables:"
     Write-Output "  RERANKER_HOST           Server host"
     Write-Output "  RERANKER_PORT           Server port"
     Write-Output "  RERANKER_WORKERS        Number of workers"
@@ -56,6 +80,8 @@ if ($Help) {
     Write-Output "  RERANKER_USE_OFFLINE_MODE  Use offline mode"
     Write-Output "  RERANKER_DEVICE         Device (cuda, cpu)"
     Write-Output "  RERANKER_API_KEY        API key for authentication"
+    Write-Output "  RERANKER_LOG_LEVEL      Log level (DEBUG, INFO, WARNING, ERROR)"
+    Write-Output "  RERANKER_ENABLE_ASYNC_ENGINE  Enable async engine"
     exit 0
 }
 

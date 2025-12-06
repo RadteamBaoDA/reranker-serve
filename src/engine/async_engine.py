@@ -108,9 +108,19 @@ class AsyncRerankerEngine:
     async def start(self) -> "AsyncRerankerEngine":
         """Start the engine and background processor."""
         if self._running:
+            logger.debug("engine_already_running", engine_id=id(self))
             return self
         
         logger.info("starting_async_engine")
+        logger.debug(
+            "engine_config",
+            model=self.model_name_or_path,
+            device=self.device,
+            max_length=self.max_length,
+            use_fp16=self.use_fp16,
+            max_concurrent_batches=self.max_concurrent_batches,
+            inference_threads=self.inference_threads,
+        )
         
         # Load model
         await self._load_model()
@@ -123,6 +133,7 @@ class AsyncRerankerEngine:
         )
         
         logger.info("async_engine_started")
+        logger.debug("background_processor_task_created", task_name="reranker-batch-processor")
         return self
     
     async def stop(self) -> None:
@@ -157,11 +168,21 @@ class AsyncRerankerEngine:
     
     async def _load_model(self) -> None:
         """Load the model (thread-safe)."""
+        logger.debug("acquiring_model_lock")
         async with self._model_lock:
             if self._model is not None:
+                logger.debug("model_already_loaded", model=self.model_name_or_path)
                 return
             
             logger.info(f"Loading reranker model: {self.model_name_or_path}")
+            logger.debug(
+                "model_load_start",
+                model_path=self.model_name_or_path,
+                device=self.device,
+                max_length=self.max_length,
+            )
+            
+            load_start_time = time.time()
             
             # Run blocking model load in thread pool
             loop = asyncio.get_running_loop()
@@ -170,7 +191,13 @@ class AsyncRerankerEngine:
                 self._load_model_sync,
             )
             
+            load_duration = time.time() - load_start_time
             logger.info("Model loaded successfully")
+            logger.debug(
+                "model_load_complete",
+                load_time_seconds=load_duration,
+                model_type=type(self._model).__name__,
+            )
     
     def _load_model_sync(self):
         """Synchronous model loading (runs in thread pool)."""
@@ -297,45 +324,85 @@ class AsyncRerankerEngine:
         and processing them in the thread pool.
         """
         logger.info("batch_processor_started")
+        logger.debug(
+            "batch_processor_config",
+            max_concurrent_batches=self.max_concurrent_batches,
+            queue_size=self.request_queue.max_queue_size,
+        )
         
+        loop_iteration = 0
         while self._running or self.request_queue.active_count > 0:
+            loop_iteration += 1
             try:
+                logger.debug(
+                    "batch_processor_loop_iteration",
+                    iteration=loop_iteration,
+                    running=self._running,
+                    active_requests=self.request_queue.active_count,
+                    pending_requests=self.request_queue.pending_count,
+                )
+                
                 # Get a batch (with timeout for shutdown check)
                 batch = await self.request_queue.get_batch()
                 
                 if batch is None:
+                    logger.debug("no_batch_available", iteration=loop_iteration)
                     continue
+                
+                logger.debug(
+                    "batch_acquired",
+                    batch_id=batch.batch_id,
+                    num_requests=len(batch.requests),
+                    waiting_for_semaphore=True,
+                )
                 
                 # Process batch with concurrency limit
                 async with self._batch_semaphore:
+                    logger.debug("semaphore_acquired", batch_id=batch.batch_id)
                     await self._process_batch(batch)
                     
             except asyncio.CancelledError:
                 logger.info("batch_processor_cancelled")
+                logger.debug("batch_processor_cancelled_at_iteration", iteration=loop_iteration)
                 break
             except Exception as e:
                 logger.error(f"batch_processor_error: {e}")
+                logger.debug(
+                    "batch_processor_exception",
+                    iteration=loop_iteration,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    exc_info=True,
+                )
                 await asyncio.sleep(0.1)  # Prevent tight loop on error
         
         logger.info("batch_processor_stopped")
+        logger.debug("batch_processor_total_iterations", total_iterations=loop_iteration)
     
     async def _process_batch(self, batch: BatchedRequest) -> None:
         """Process a batch of requests."""
         start_time = time.time()
         
         logger.debug(
-            "processing_batch",
+            "processing_batch_start",
             batch_id=batch.batch_id,
             num_requests=len(batch.requests),
             total_pairs=batch.total_pairs,
+            request_ids=[req.request_id for req in batch.requests],
         )
         
         try:
             # Update request status
             for req in batch.requests:
                 req.status = RequestStatus.PROCESSING
+                logger.debug(
+                    "request_status_updated",
+                    request_id=req.request_id,
+                    status="PROCESSING",
+                )
             
             # Run inference in thread pool
+            logger.debug("submitting_to_thread_pool", batch_id=batch.batch_id)
             loop = asyncio.get_running_loop()
             results = await loop.run_in_executor(
                 self._executor,
@@ -347,11 +414,24 @@ class AsyncRerankerEngine:
             processing_time = time.time() - start_time
             self._total_inference_time += processing_time
             
+            logger.debug(
+                "distributing_results",
+                batch_id=batch.batch_id,
+                num_results=len(results),
+                processing_time=processing_time,
+            )
+            
             for request, result_data in zip(batch.requests, results):
                 result = RerankResult(
                     request_id=request.request_id,
                     results=result_data,
                     processing_time=processing_time / len(batch.requests),
+                )
+                logger.debug(
+                    "completing_request",
+                    request_id=request.request_id,
+                    num_results=len(result_data),
+                    top_score=result_data[0]["relevance_score"] if result_data else None,
                 )
                 self.request_queue.complete_request(request.request_id, result)
             
@@ -359,11 +439,21 @@ class AsyncRerankerEngine:
                 "batch_completed",
                 batch_id=batch.batch_id,
                 processing_time=processing_time,
+                avg_time_per_request=processing_time / len(batch.requests),
             )
             
         except Exception as e:
             logger.error(f"batch_processing_failed: {e}")
+            logger.debug(
+                "batch_processing_exception",
+                batch_id=batch.batch_id,
+                error_type=type(e).__name__,
+                error_message=str(e),
+                request_ids=[req.request_id for req in batch.requests],
+                exc_info=True,
+            )
             for req in batch.requests:
+                logger.debug("failing_request", request_id=req.request_id, error=str(e))
                 self.request_queue.fail_request(
                     req.request_id,
                     str(e),
@@ -379,26 +469,58 @@ class AsyncRerankerEngine:
         Processes all requests in the batch together for efficiency.
         """
         import numpy as np
+        import threading
+        
+        logger.debug(
+            "inference_batch_sync_start",
+            batch_id=batch.batch_id,
+            thread_id=threading.current_thread().name,
+            num_requests=len(batch.requests),
+        )
         
         all_results = []
         
         # Process each request (could be further optimized with mega-batching)
-        for request in batch.requests:
+        for req_idx, request in enumerate(batch.requests):
             # Create query-document pairs
             pairs = [[request.query, doc] for doc in request.documents]
             
+            logger.debug(
+                "processing_request_in_batch",
+                batch_id=batch.batch_id,
+                request_id=request.request_id,
+                request_index=req_idx,
+                num_pairs=len(pairs),
+                query_preview=request.query[:100] if request.query else None,
+            )
+            
             try:
                 # Get scores
+                inference_start = time.time()
                 scores = self._model.predict(
                     pairs,
                     batch_size=settings.batch_size,
                     show_progress_bar=False,
+                )
+                inference_time = time.time() - inference_start
+                
+                logger.debug(
+                    "model_predict_complete",
+                    request_id=request.request_id,
+                    num_scores=len(scores),
+                    inference_time=inference_time,
+                    raw_scores_sample=list(scores[:3]) if len(scores) > 0 else [],
                 )
                 
                 # Normalize if configured
                 if settings.normalize_scores:
                     scores_array = np.array(scores)
                     scores = (1 / (1 + np.exp(-scores_array))).tolist()
+                    logger.debug(
+                        "scores_normalized",
+                        request_id=request.request_id,
+                        normalized_scores_sample=scores[:3] if len(scores) > 0 else [],
+                    )
                 
                 # Build results
                 results = []
@@ -417,10 +539,31 @@ class AsyncRerankerEngine:
                 # Apply top_k
                 if request.top_k is not None and request.top_k > 0:
                     results = results[:request.top_k]
+                    logger.debug(
+                        "top_k_applied",
+                        request_id=request.request_id,
+                        top_k=request.top_k,
+                        results_count=len(results),
+                    )
                 
                 all_results.append(results)
                 
+                logger.debug(
+                    "request_inference_complete",
+                    request_id=request.request_id,
+                    num_results=len(results),
+                    top_score=results[0]["relevance_score"] if results else None,
+                    bottom_score=results[-1]["relevance_score"] if results else None,
+                )
+                
             except Exception as e:
+                logger.debug(
+                    "inference_exception",
+                    request_id=request.request_id,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    device=self.device,
+                )
                 # Fallback for MPS issues
                 if self.device == "mps" and settings.mps_fallback_to_cpu:
                     logger.warning(f"MPS failed, falling back to CPU: {e}")
@@ -430,6 +573,12 @@ class AsyncRerankerEngine:
                     raise
                 else:
                     raise
+        
+        logger.debug(
+            "inference_batch_sync_complete",
+            batch_id=batch.batch_id,
+            total_results=len(all_results),
+        )
         
         return all_results
     
@@ -456,10 +605,25 @@ class AsyncRerankerEngine:
         Returns:
             List of rerank results
         """
+        rerank_start_time = time.time()
+        
+        logger.debug(
+            "rerank_request_received",
+            request_id=request_id,
+            query_length=len(query),
+            query_preview=query[:100] if query else None,
+            num_documents=len(documents),
+            top_k=top_k,
+            return_documents=return_documents,
+            priority=priority,
+        )
+        
         if not self._running:
+            logger.debug("rerank_rejected_engine_not_running", request_id=request_id)
             raise RuntimeError("Engine is not running")
         
         if not documents:
+            logger.debug("rerank_empty_documents", request_id=request_id)
             return []
         
         # Create request
@@ -472,15 +636,36 @@ class AsyncRerankerEngine:
             priority=priority,
         )
         
+        logger.debug(
+            "rerank_request_created",
+            request_id=request.request_id,
+            arrival_time=request.arrival_time,
+        )
+        
         self._total_requests += 1
         
         # Add to queue and wait for result
+        logger.debug("adding_request_to_queue", request_id=request.request_id)
         result_future = await self.request_queue.add_request(request)
+        logger.debug("request_added_to_queue", request_id=request.request_id)
         
         try:
+            logger.debug("waiting_for_result", request_id=request.request_id)
             result: RerankResult = await result_future
+            
+            total_time = time.time() - rerank_start_time
+            logger.debug(
+                "rerank_request_complete",
+                request_id=request.request_id,
+                total_time=total_time,
+                processing_time=result.processing_time,
+                queue_wait_time=total_time - result.processing_time,
+                num_results=len(result.results),
+            )
+            
             return result.results
         except asyncio.CancelledError:
+            logger.debug("rerank_request_cancelled", request_id=request.request_id)
             await self.request_queue.cancel_request(request.request_id)
             raise
     

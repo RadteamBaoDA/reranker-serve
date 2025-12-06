@@ -60,11 +60,14 @@ configure_proxy_bypass()
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
-    """Middleware to bind request context for structured logging."""
+    """Middleware to bind request context for structured logging and request tracing."""
     
     async def dispatch(self, request: Request, call_next):
+        import time
+        
         # Generate request ID
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        start_time = time.time()
         
         # Bind request context for logging
         bind_request_context(
@@ -74,11 +77,55 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             client_ip=request.client.host if request.client else None,
         )
         
+        # Log incoming request details
+        logger.debug(
+            "http_request_start",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            query_string=str(request.query_params) if request.query_params else None,
+            client_ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            content_length=request.headers.get("content-length"),
+            content_type=request.headers.get("content-type"),
+        )
+        
         try:
             response = await call_next(request)
-            # Add request ID to response headers
+            
+            # Calculate response time
+            elapsed = time.time() - start_time
+            elapsed_ms = round(elapsed * 1000, 2)
+            
+            # Log response details
+            logger.debug(
+                "http_request_complete",
+                request_id=request_id,
+                method=request.method,
+                path=request.url.path,
+                status_code=response.status_code,
+                elapsed_ms=elapsed_ms,
+                response_content_type=response.headers.get("content-type"),
+            )
+            
+            # Add timing headers to response
             response.headers["X-Request-ID"] = request_id
+            response.headers["X-Response-Time-Ms"] = str(elapsed_ms)
+            
             return response
+            
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.debug(
+                "http_request_error",
+                request_id=request_id,
+                method=request.method,
+                path=request.url.path,
+                error=str(e),
+                error_type=type(e).__name__,
+                elapsed_ms=round(elapsed * 1000, 2),
+            )
+            raise
         finally:
             clear_request_context()
 
@@ -89,6 +136,9 @@ async def lifespan(app: FastAPI):
     Application lifespan handler.
     Loads the model on startup and cleans up on shutdown.
     """
+    import time
+    startup_start = time.time()
+    
     # Startup
     logger.info(
         "starting_reranker_service",
@@ -98,9 +148,23 @@ async def lifespan(app: FastAPI):
         version=__version__,
     )
     
+    logger.debug(
+        "startup_config_details",
+        async_engine_enabled=settings.enable_async_engine,
+        max_concurrent_batches=settings.max_concurrent_batches,
+        inference_threads=settings.inference_threads,
+        max_batch_size=settings.max_batch_size,
+        max_batch_pairs=settings.max_batch_pairs,
+        batch_wait_timeout=settings.batch_wait_timeout,
+        max_queue_size=settings.max_queue_size,
+        request_timeout=settings.request_timeout,
+        log_level=settings.log_level,
+    )
+    
     # Initialize load balancer if enabled
     lb_router = None
     if settings.enable_load_balancer:
+        logger.debug("load_balancer_init_start", config_path=settings.config_path)
         try:
             from src.load_balancer import load_config, initialize_router
             config = load_config(settings.config_path)
@@ -110,13 +174,22 @@ async def lifespan(app: FastAPI):
                 backend_count=len(config.model_list),
                 routing_strategy=config.router_settings.routing_strategy,
             )
+            logger.debug(
+                "load_balancer_config_details",
+                backends=[b.model_name for b in config.model_list],
+                health_check_interval=config.router_settings.health_check_interval,
+            )
         except Exception as e:
             logger.error("load_balancer_init_failed", error=str(e))
+            logger.debug("load_balancer_init_failed_details", error_type=type(e).__name__)
             logger.info("falling_back_to_local_model")
+    else:
+        logger.debug("load_balancer_disabled")
     
     # Pre-load the model (async engine or sync model)
     try:
         if settings.enable_async_engine:
+            logger.debug("async_engine_loading_start")
             from src.engine import get_async_engine
             engine = await get_async_engine()
             logger.info(
@@ -125,45 +198,77 @@ async def lifespan(app: FastAPI):
                 device=settings.get_device(),
                 max_concurrent_batches=settings.max_concurrent_batches,
             )
+            logger.debug(
+                "async_engine_ready",
+                engine_running=engine.is_running(),
+            )
         else:
+            logger.debug("sync_model_loading_start")
             from src.models import get_reranker_model
             get_reranker_model()
             logger.info("sync_model_loaded_successfully")
+            logger.debug("sync_model_ready")
     except Exception as e:
         logger.error("model_load_failed", error=str(e))
+        logger.debug("model_load_failed_details", error_type=type(e).__name__)
         # Don't fail startup, model will be loaded on first request
+    
+    startup_elapsed = time.time() - startup_start
+    logger.debug(
+        "startup_complete",
+        elapsed_seconds=round(startup_elapsed, 2),
+    )
     
     yield
     
     # Shutdown
+    import time
+    shutdown_start = time.time()
     logger.info("shutting_down_reranker_service")
+    logger.debug("shutdown_start")
     
     # Close load balancer
     if lb_router:
         try:
+            logger.debug("load_balancer_closing_start")
             from src.load_balancer import close_router
             await close_router()
             logger.info("load_balancer_closed")
+            logger.debug("load_balancer_closed_success")
         except Exception as e:
             logger.error("load_balancer_close_error", error=str(e))
+            logger.debug("load_balancer_close_error_details", error_type=type(e).__name__)
     
     # Stop async engine or unload sync model
     try:
         if settings.enable_async_engine:
+            logger.debug("async_engine_stopping_start")
             from src.engine import reset_async_engine
             await reset_async_engine()
             logger.info("async_engine_stopped")
+            logger.debug("async_engine_stopped_success")
         else:
+            logger.debug("sync_model_unloading_start")
             from src.models.reranker import reset_reranker_model
             reset_reranker_model()
             logger.info("sync_model_unloaded")
+            logger.debug("sync_model_unloaded_success")
     except Exception as e:
         logger.error("shutdown_error", error=str(e))
+        logger.debug("shutdown_error_details", error_type=type(e).__name__)
+    
+    shutdown_elapsed = time.time() - shutdown_start
+    logger.debug(
+        "shutdown_complete",
+        elapsed_seconds=round(shutdown_elapsed, 2),
+    )
 
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     from src.api import router, health_router
+    
+    logger.debug("create_app_start")
     
     app = FastAPI(
         title="Reranker Service",
@@ -213,6 +318,10 @@ def create_app() -> FastAPI:
     
     # Configure CORS
     if settings.enable_cors:
+        logger.debug(
+            "cors_enabled",
+            origins=settings.get_cors_origins_list(),
+        )
         app.add_middleware(
             CORSMiddleware,
             allow_origins=settings.get_cors_origins_list(),
@@ -220,18 +329,25 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+    else:
+        logger.debug("cors_disabled")
     
     # Add request context middleware for structured logging
+    logger.debug("adding_request_context_middleware")
     app.add_middleware(RequestContextMiddleware)
     
     # Include routers
+    logger.debug("including_routers")
     app.include_router(health_router)
     app.include_router(router)
     
     # Include load balancer routes if enabled
     if settings.enable_load_balancer:
         from src.api.lb_routes import router as lb_router
+        logger.debug("including_load_balancer_routes")
         app.include_router(lb_router)
+    
+    logger.debug("create_app_complete")
     
     return app
 
@@ -264,6 +380,14 @@ def run_server():
         workers=settings.workers,
         async_engine=settings.enable_async_engine,
         max_concurrent_batches=settings.max_concurrent_batches,
+    )
+    
+    logger.debug(
+        "uvicorn_config_details",
+        reload=settings.reload,
+        log_level=settings.log_level.lower(),
+        access_log_enabled=settings.log_level.upper() == "DEBUG",
+        timeout_keep_alive=30,
     )
     
     uvicorn.run(
