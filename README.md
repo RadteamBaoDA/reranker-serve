@@ -4,553 +4,84 @@ A high-performance reranker service using Sentence Transformer models, compatibl
 
 ## Features
 
-- 🚀 **FastAPI-based REST API** - High-performance async API server
-- ⚡ **Async Engine (vLLM-inspired)** - Concurrent request handling with automatic batching
-- 📊 **Request Queue & Batching** - Optimal GPU utilization with dynamic batch processing
+- 🚀 **FastAPI-based REST API** with async engine (vLLM-inspired architecture)
+- 📊 **Dynamic Batching** - Automatic request batching for optimal GPU utilization
 - 🔄 **API Compatibility** - Compatible with Jina AI and Cohere reranker APIs
-- 🤖 **Multiple Model Support** - Supports BAAI/bge-reranker and Qwen3-reranker models
-- 💻 **Multi-platform** - Optimized for CUDA, Apple Silicon (MPS), and CPU
-- 🪟 **Cross-platform Scripts** - Full support for Windows, Linux, and macOS
-- 📦 **Offline Mode** - Load models from local disk without internet access
+- 🤖 **Multiple Models** - BAAI/bge-reranker and Qwen3-reranker support
+- 💻 **Multi-platform** - CUDA, Apple Silicon (MPS), and CPU
+-  **Load Balancing** - LiteLLM-style router for multiple backends
 - 🐳 **Docker Ready** - Includes Dockerfile and docker-compose.yml
-- ⚡ **Production Ready** - Uvicorn ASGI server with configurable workers
-- 📊 **Structured Logging** - Uses [structlog](https://www.structlog.org/) for structured, JSON-compatible logs
-- 🔀 **Load Balancing** - Built-in LiteLLM-style load balancer for multiple backends
-- 🌐 **Proxy Bypass** - Automatic proxy bypass for internal service communication
-
-## Architecture (vLLM-inspired)
-
-The service implements a high-performance architecture inspired by vLLM:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      FastAPI Application                        │
-├─────────────────────────────────────────────────────────────────┤
-│  Request 1 ──┐                                                  │
-│  Request 2 ──┼──▶ Request Queue ──▶ Batch Processor ──┐        │
-│  Request 3 ──┘        │                                │        │
-│       ...             │                                ▼        │
-│                       │                      ┌─────────────────┐│
-│                       │                      │  Thread Pool    ││
-│               ┌───────▼───────┐              │  (Inference)    ││
-│               │ Batch Creator │              │                 ││
-│               │ (Async Loop)  │──────────────▶  CrossEncoder  ││
-│               └───────────────┘              │    .predict()   ││
-│                                              └─────────────────┘│
-│  Result Future ◀── Result Distribution ◀── Batch Results       │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Key Components
-
-1. **Async Request Queue**: Priority-based scheduling with configurable queue size
-2. **Dynamic Batching**: Requests are batched together (configurable wait timeout)
-3. **Thread Pool Executor**: Non-blocking model inference
-4. **Concurrent Batch Processing**: Multiple batches can be processed simultaneously
-
-## Supported Models
-
-- **BAAI/bge-reranker-v2-m3** - Multilingual reranker (default)
-- **BAAI/bge-reranker-large** - English reranker
-- **BAAI/bge-reranker-base** - Smaller English reranker
-- **Qwen3-reranker** - Qwen-based reranker models
 
 ## Quick Start
 
 ### Windows
 
-1. **Setup the environment (PowerShell):**
-   ```powershell
-   .\setup.ps1
-   ```
-
-2. **Run the server:**
-   ```powershell
-   .\run.ps1
-   ```
-
-3. **Alternative (Batch files):**
-   ```cmd
-   setup.bat
-   run.bat
-   ```
+```powershell
+.\setup.ps1
+.\run.ps1
+```
 
 ### Linux/macOS
 
-1. **Setup the environment:**
-   ```bash
-   chmod +x setup.sh run.sh download_model.sh daemon.sh
-   ./setup.sh
-   ```
-
-2. **Run the server:**
-   ```bash
-   ./run.sh
-   ```
-
-### Access the API
-
-- API Docs: http://localhost:8000/docs
-- Health Check: http://localhost:8000/health
-
-### Manual Setup
-
 ```bash
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or
-.\venv\Scripts\Activate.ps1  # Windows PowerShell
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the server
-uvicorn src.main:app --host 0.0.0.0 --port 8000
+chmod +x setup.sh run.sh
+./setup.sh
+./run.sh
 ```
 
 ### Docker
 
 ```bash
-# Build and run with docker-compose
 docker-compose up -d
-
-# Or build manually
-docker build -t reranker-serve .
-docker run -p 8000:8000 reranker-serve
 ```
 
-## API Endpoints
+### Access
 
-### Native API
+- **API Docs**: http://localhost:8000/docs
+- **Health Check**: http://localhost:8000/health
+
+## Basic Usage
 
 ```bash
-POST /rerank
+curl -X POST http://localhost:8000/rerank \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What is deep learning?",
+    "documents": ["Deep learning is a subset of ML.", "The weather is nice."],
+    "top_n": 2
+  }'
 ```
 
-```json
-{
-  "query": "What is deep learning?",
-  "documents": [
-    "Deep learning is a subset of machine learning.",
-    "The weather is nice today."
-  ],
-  "top_n": 2,
-  "return_documents": true
-}
-```
+## Supported Models
 
-### Cohere-Compatible API
-
-```bash
-POST /v1/rerank
-```
-
-```json
-{
-  "query": "What is deep learning?",
-  "documents": ["Document 1", "Document 2"],
-  "top_n": 2
-}
-```
-
-### Jina AI-Compatible API
-
-```bash
-POST /api/v1/rerank
-```
-
-```json
-{
-  "query": "What is deep learning?",
-  "documents": [
-    {"text": "Document 1"},
-    {"text": "Document 2"}
-  ],
-  "top_n": 2
-}
-```
+| Model | Description |
+|-------|-------------|
+| `BAAI/bge-reranker-v2-m3` | Multilingual reranker (default) |
+| `BAAI/bge-reranker-large` | English reranker |
+| `BAAI/bge-reranker-base` | Smaller English reranker |
+| `Qwen3-reranker` | Qwen-based reranker models |
 
 ## Configuration
 
-Configuration is done through environment variables with the `RERANKER_` prefix:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `RERANKER_HOST` | Server host | `0.0.0.0` |
-| `RERANKER_PORT` | Server port | `8000` |
-| `RERANKER_WORKERS` | Number of uvicorn workers | `1` |
-| `RERANKER_MODEL_NAME` | Model name or HuggingFace ID | `BAAI/bge-reranker-v2-m3` |
-| `RERANKER_MODEL_PATH` | Local model path | `None` |
-| `RERANKER_MODEL_CACHE_DIR` | Model cache directory | `./models` |
-| `RERANKER_USE_OFFLINE_MODE` | Offline mode (no downloads) | `false` |
-| `RERANKER_MAX_LENGTH` | Maximum sequence length | `512` |
-| `RERANKER_BATCH_SIZE` | Inference batch size | `32` |
-| `RERANKER_DEVICE` | Device: cuda, mps, cpu | Auto-detect |
-| `RERANKER_USE_FP16` | Use FP16 precision | `true` |
-| `RERANKER_API_KEY` | API key for auth | `None` |
-| `RERANKER_LOG_LEVEL` | Logging level | `INFO` |
-| `RERANKER_LOAD_BALANCER_ENABLED` | Enable load balancer mode | `false` |
-| `RERANKER_CONFIG_PATH` | Path to YAML config file | `./reranker_config.yaml` |
-
-### Async Engine Configuration (vLLM-inspired)
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `RERANKER_ENABLE_ASYNC_ENGINE` | Enable async engine for concurrent requests | `true` |
-| `RERANKER_MAX_CONCURRENT_BATCHES` | Max batches processing simultaneously | `2` |
-| `RERANKER_INFERENCE_THREADS` | Thread pool size for inference | `1` |
-| `RERANKER_MAX_BATCH_SIZE` | Max requests per batch | `32` |
-| `RERANKER_MAX_BATCH_PAIRS` | Max query-doc pairs per batch | `1024` |
-| `RERANKER_BATCH_WAIT_TIMEOUT` | Wait time (seconds) to batch requests | `0.01` |
-| `RERANKER_MAX_QUEUE_SIZE` | Max pending requests in queue | `1000` |
-| `RERANKER_REQUEST_TIMEOUT` | Request timeout in seconds | `60.0` |
-
-### Example `.env` file
+Set environment variables with `RERANKER_` prefix:
 
 ```env
 RERANKER_PORT=8000
 RERANKER_MODEL_NAME=BAAI/bge-reranker-v2-m3
 RERANKER_DEVICE=cuda
-RERANKER_LOG_LEVEL=INFO
-
-# High-performance async settings
-RERANKER_ENABLE_ASYNC_ENGINE=true
-RERANKER_MAX_CONCURRENT_BATCHES=4
-RERANKER_MAX_BATCH_PAIRS=2048
-RERANKER_BATCH_WAIT_TIMEOUT=0.005
 ```
 
-## Load Balancer (LiteLLM-Style)
+See [Configuration Reference](docs/configuration.md) for all options.
 
-The service includes a load balancer that can route requests across multiple reranker backends, similar to LiteLLM's router.
+## Documentation
 
-### Enable Load Balancer
-
-1. **Create a YAML configuration file** (`reranker_config.yaml`):
-
-```yaml
-model_list:
-  - model_name: "primary-reranker"
-    litellm_params:
-      api_base: "http://server1:8000"
-      api_key: "optional-key"
-    weight: 2.0
-    priority: 0
-    
-  - model_name: "backup-reranker"
-    litellm_params:
-      api_base: "http://server2:8000"
-    weight: 1.0
-    priority: 1
-
-router_settings:
-  routing_strategy: "weighted-random"  # or round-robin, least-busy, latency-based-routing, priority-failover
-  num_retries: 3
-  retry_delay: 1.0
-  fallback_to_local: true
-  health_check_interval: 60
-```
-
-2. **Enable in environment:**
-
-```bash
-export RERANKER_LOAD_BALANCER_ENABLED=true
-export RERANKER_CONFIG_PATH=./reranker_config.yaml
-```
-
-3. **Use load-balanced endpoints:**
-
-```bash
-# Requests are automatically load-balanced
-POST /rerank
-POST /v1/rerank  
-POST /api/v1/rerank
-```
-
-### Routing Strategies
-
-| Strategy | Description |
+| Document | Description |
 |----------|-------------|
-| `weighted-random` | Random selection weighted by model weights (default) |
-| `round-robin` | Sequential rotation through backends |
-| `least-busy` | Route to backend with fewest active requests |
-| `latency-based-routing` | Route to backend with lowest average latency |
-| `priority-failover` | Use highest priority backend, failover on error |
-| `simple-shuffle` | Pure random selection |
-
-### Load Balancer Features
-
-- **Health Checks**: Automatic health monitoring of backends
-- **Circuit Breaker**: Unhealthy backends are temporarily removed
-- **Automatic Retries**: Failed requests retry on other backends
-- **Rate Limiting**: Per-backend request rate limits (rpm, tpm)
-- **Request Logging**: Detailed logging of routed requests
-- **Fallback to Local**: Use local model if all backends fail
-
-### Monitor Load Balancer
-
-```bash
-# Check load balancer statistics
-curl http://localhost:8000/lb/stats
-```
-
-## Structured Logging
-
-The service uses [structlog](https://www.structlog.org/) for structured, machine-readable logging.
-
-### Console Output (Default)
-
-```
-2025-11-29T09:35:13.329710Z [info     ] starting_reranker_service      model=BAAI/bge-reranker-v2-m3 device=cuda
-2025-11-29T09:35:14.123456Z [info     ] model_loaded_successfully
-```
-
-### JSON Output (Production)
-
-Enable JSON logs for log aggregation systems (ELK, Splunk, etc.):
-
-```bash
-export RERANKER_JSON_LOGS=true
-```
-
-Output:
-```json
-{"event": "starting_reranker_service", "model": "BAAI/bge-reranker-v2-m3", "device": "cuda", "level": "info", "timestamp": "2025-11-29T09:35:13.329710Z"}
-```
-
-### Request Context
-
-Each HTTP request automatically includes:
-- `request_id`: Unique request identifier (also in response headers as `X-Request-ID`)
-- `method`: HTTP method
-- `path`: Request path
-- `client_ip`: Client IP address
-
-### Log Levels
-
-| Level | Description |
-|-------|-------------|
-| `DEBUG` | Detailed debugging information |
-| `INFO` | General operational messages (default) |
-| `WARNING` | Warning messages for potential issues |
-| `ERROR` | Error messages for failures |
-| `CRITICAL` | Critical failures |
-
-## Proxy Bypass
-
-The service automatically configures proxy bypass for internal communications:
-
-- Load balancer requests to backends bypass system proxy
-- `NO_PROXY` environment variable is automatically configured
-- Includes: `localhost`, `127.0.0.1`, `::1`, `0.0.0.0`, `.local`, `.internal`
-
-This ensures reliable communication between reranker service instances in load-balanced deployments.
-
-## Offline Model Usage
-
-### Linux/macOS
-
-1. **Download the model:**
-   ```bash
-   ./download_model.sh BAAI/bge-reranker-v2-m3 ./models
-   ```
-
-2. **Configure for offline use:**
-   ```bash
-   export RERANKER_MODEL_PATH=./models/BAAI_bge-reranker-v2-m3
-   export RERANKER_USE_OFFLINE_MODE=true
-   ```
-
-3. **Run the server:**
-   ```bash
-   ./run.sh
-   ```
-
-### Windows
-
-1. **Download the model (PowerShell):**
-   ```powershell
-   .\download_model.ps1 -ModelName "BAAI/bge-reranker-v2-m3" -OutputDir "./models"
-   ```
-
-2. **Configure for offline use:**
-   ```powershell
-   $env:RERANKER_MODEL_PATH="./models/BAAI_bge-reranker-v2-m3"
-   $env:RERANKER_USE_OFFLINE_MODE="true"
-   ```
-
-3. **Run the server:**
-   ```powershell
-   .\run.ps1
-   ```
-
-## Apple Silicon (MPS) Optimization
-
-The service automatically detects and uses MPS on Apple Silicon Macs:
-
-- Automatic MPS fallback to CPU for unsupported operations
-- Optimized memory management for MPS
-- FP32 precision for stability on MPS
-
-To verify MPS support:
-```bash
-python -c "import torch; print('MPS available:', torch.backends.mps.is_available())"
-```
-
-## Development
-
-### Install dev dependencies
-
-```bash
-# Linux/macOS
-./setup.sh --dev
-
-# Windows PowerShell
-.\setup.ps1 -Dev
-```
-
-### Run tests
-
-```bash
-pytest tests/ -v
-```
-
-### Run with auto-reload
-
-```bash
-# Linux/macOS
-./run.sh --dev
-
-# Windows PowerShell
-.\run.ps1 -Dev
-```
-
-### Run as Daemon (Background Service)
-
-#### Linux/macOS
-
-```bash
-# Start as daemon
-./daemon.sh start
-
-# Check status
-./daemon.sh status
-
-# View logs
-./daemon.sh logs
-
-# Stop daemon
-./daemon.sh stop
-
-# Restart daemon
-./daemon.sh restart
-```
-
-#### Windows (PowerShell)
-
-```powershell
-# Start as background job
-.\daemon.ps1 -Action start
-
-# Check status
-.\daemon.ps1 -Action status
-
-# View logs
-.\daemon.ps1 -Action logs
-
-# Stop daemon
-.\daemon.ps1 -Action stop
-
-# Restart daemon
-.\daemon.ps1 -Action restart
-```
-
-## Troubleshooting
-
-### Windows: PyTorch DLL Error
-
-If you encounter `[WinError 1114] A dynamic link library (DLL) initialization routine failed`:
-
-1. **Install Visual C++ Redistributable:**
-   - Download from: https://aka.ms/vs/17/release/vc_redist.x64.exe
-   - Install and restart your terminal
-
-2. **Run the fix script:**
-   ```powershell
-   .\fix-pytorch.ps1
-   ```
-
-### Verify PyTorch Installation
-
-```bash
-python -c "import torch; print('PyTorch:', torch.__version__)"
-```
-
-### Verify Device Support
-
-```bash
-# CUDA
-python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
-
-# MPS (Apple Silicon)
-python -c "import torch; print('MPS available:', torch.backends.mps.is_available())"
-```
-
-## Project Structure
-
-```
-reranker-serve/
-├── src/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI application
-│   ├── api/
-│   │   ├── __init__.py
-│   │   ├── routes.py        # API routes
-│   │   └── health.py        # Health endpoints
-│   ├── config/
-│   │   ├── __init__.py
-│   │   └── settings.py      # Configuration
-│   ├── models/
-│   │   ├── __init__.py
-│   │   └── reranker.py      # Reranker model
-│   ├── schemas/
-│   │   ├── __init__.py
-│   │   └── rerank.py        # Pydantic schemas
-│   └── load_balancer/
-│       ├── __init__.py
-│       ├── config.py        # YAML config loader
-│       └── router.py        # Load balancer router
-├── tests/
-│   ├── __init__.py
-│   ├── conftest.py
-│   ├── test_api.py
-│   ├── test_config.py
-│   ├── test_load_balancer.py
-│   └── test_reranker.py
-├── models/                  # Model cache directory
-├── reranker_config.yaml.example  # Load balancer config example
-├── setup.sh                 # Setup script (Linux/macOS)
-├── setup.ps1                # Setup script (Windows PowerShell)
-├── setup.bat                # Setup script (Windows Batch)
-├── run.sh                   # Run script (Linux/macOS)
-├── run.ps1                  # Run script (Windows PowerShell)
-├── run.bat                  # Run script (Windows Batch)
-├── daemon.sh                # Daemon script (Linux/macOS)
-├── daemon.ps1               # Daemon script (Windows PowerShell)
-├── download_model.sh        # Model download (Linux/macOS)
-├── download_model.ps1       # Model download (Windows PowerShell)
-├── download_model.bat       # Model download (Windows Batch)
-├── fix-pytorch.ps1          # PyTorch fix script (Windows)
-├── Dockerfile               # Docker build file
-├── docker-compose.yml       # Docker Compose config
-├── requirements.txt
-├── requirements-dev.txt
-├── pyproject.toml
-├── .env.example             # Environment variables template
-├── .gitignore
-└── README.md
-```
+| [Configuration](docs/configuration.md) | Environment variables & settings |
+| [API Reference](docs/api-reference.md) | All API endpoints with examples |
+| [Load Balancer](docs/load-balancer.md) | Multi-backend routing setup |
+| [Development](docs/development.md) | Dev setup, testing, project structure |
+| [Deployment](docs/deployment.md) | Docker, offline mode, troubleshooting |
 
 ## License
 
