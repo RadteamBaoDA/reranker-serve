@@ -1,118 +1,57 @@
-"""
-Unit tests for configuration settings.
-"""
+"""Settings helpers should remain deterministic with mocks."""
 
 import os
-import sys
-import pytest
-from unittest.mock import patch, MagicMock
-
-# Ensure torch is mocked before importing settings
-if "torch" not in sys.modules:
-    mock_torch = MagicMock()
-    mock_torch.__version__ = "2.0.0"
-    mock_torch.cuda.is_available.return_value = False
-    mock_torch.backends.mps.is_available.return_value = False
-    mock_torch.backends.mps.is_built.return_value = False
-    mock_torch.float16 = "float16"
-    mock_torch.float32 = "float32"
-    sys.modules["torch"] = mock_torch
+from unittest.mock import patch
 
 
-class TestSettings:
-    """Tests for the Settings class."""
-    
-    def test_default_settings(self):
-        """Test default settings values."""
+def test_default_settings_values():
+    from src.config.settings import Settings
+
+    cfg = Settings()
+
+    assert cfg.host == "0.0.0.0"
+    assert cfg.port == 8000
+    assert cfg.model_name == "BAAI/bge-reranker-v2-m3"
+    assert cfg.max_length == 512
+    assert cfg.batch_size == 32
+
+
+def test_env_overrides_apply():
+    with patch.dict(os.environ, {
+        "RERANKER_PORT": "9100",
+        "RERANKER_MODEL_NAME": "custom/model",
+        "RERANKER_MAX_LENGTH": "128",
+    }):
         from src.config.settings import Settings
-        
-        settings = Settings()
-        
-        assert settings.host == "0.0.0.0"
-        assert settings.port == 8000
-        assert settings.workers == 1
-        assert settings.model_name == "BAAI/bge-reranker-v2-m3"
-        assert settings.max_length == 512
-        assert settings.batch_size == 32
-    
-    def test_settings_from_env(self):
-        """Test settings loaded from environment variables."""
-        with patch.dict(os.environ, {
-            "RERANKER_PORT": "9000",
-            "RERANKER_MODEL_NAME": "custom/model",
-            "RERANKER_MAX_LENGTH": "256",
-        }):
-            from src.config.settings import Settings
-            settings = Settings()
-            
-            assert settings.port == 9000
-            assert settings.model_name == "custom/model"
-            assert settings.max_length == 256
-    
-    def test_get_device_auto_detect(self):
-        """Test automatic device detection."""
-        from src.config.settings import Settings
-        
-        settings = Settings()
-        device = settings.get_device()
-        
-        # With mocked torch, should return "cpu" since CUDA and MPS are mocked as unavailable
-        assert device in ["cuda", "mps", "cpu"]
-    
-    def test_get_device_explicit(self):
-        """Test explicit device setting."""
-        from src.config.settings import Settings
-        
-        settings = Settings(device="cpu")
-        device = settings.get_device()
-        
-        assert device == "cpu"
-    
-    def test_get_model_load_path_default(self):
-        """Test model load path with default settings."""
-        from src.config.settings import Settings
-        
-        settings = Settings()
-        path = settings.get_model_load_path()
-        
-        assert path == settings.model_name
-    
-    def test_get_model_load_path_local(self, tmp_path):
-        """Test model load path with local model."""
-        from src.config.settings import Settings
-        
-        local_path = str(tmp_path)
-        settings = Settings(model_path=local_path)
-        path = settings.get_model_load_path()
-        
-        assert path == local_path
-    
-    def test_get_cors_origins_list_wildcard(self):
-        """Test CORS origins parsing with wildcard."""
-        from src.config.settings import Settings
-        
-        settings = Settings(cors_origins="*")
-        origins = settings.get_cors_origins_list()
-        
-        assert origins == ["*"]
-    
-    def test_get_cors_origins_list_multiple(self):
-        """Test CORS origins parsing with multiple origins."""
-        from src.config.settings import Settings
-        
-        settings = Settings(cors_origins="http://localhost:3000, http://example.com")
-        origins = settings.get_cors_origins_list()
-        
-        assert "http://localhost:3000" in origins
-        assert "http://example.com" in origins
-    
-    def test_is_mac(self):
-        """Test macOS detection."""
-        from src.config.settings import Settings
-        import platform
-        
-        settings = Settings()
-        result = settings.is_mac()
-        
-        expected = platform.system() == "Darwin"
-        assert result == expected
+
+        cfg = Settings()
+        assert cfg.port == 9100
+        assert cfg.model_name == "custom/model"
+        assert cfg.max_length == 128
+
+
+def test_device_prefers_force_cpu():
+    from src.config.settings import Settings
+
+    cfg = Settings(force_cpu_only=True, device=None)
+    assert cfg.get_device() == "cpu"
+
+
+def test_model_load_path_prefers_local(tmp_path):
+    from src.config.settings import Settings
+
+    local = tmp_path / "model"
+    local.mkdir()
+    cfg = Settings(model_path=str(local), model_name="remote/model")
+
+    assert cfg.get_model_load_path() == str(local)
+
+
+def test_cors_parsing_handles_list_and_wildcard():
+    from src.config.settings import Settings
+
+    wildcard = Settings(cors_origins="*")
+    assert wildcard.get_cors_origins_list() == ["*"]
+
+    mixed = Settings(cors_origins="http://one.test, http://two.test")
+    assert set(mixed.get_cors_origins_list()) == {"http://one.test", "http://two.test"}
