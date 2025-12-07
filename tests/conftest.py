@@ -1,98 +1,39 @@
-"""
-Test fixtures and configuration for pytest.
-"""
+"""Shared pytest fixtures and lightweight dependency mocks."""
 
 import os
 import sys
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
+from fastapi.testclient import TestClient
 
-# Set test environment variables before importing app modules
-os.environ["RERANKER_USE_OFFLINE_MODE"] = "false"
-os.environ["RERANKER_MODEL_NAME"] = "BAAI/bge-reranker-v2-m3"
-# Disable async engine for tests to use simple mocking
-os.environ["RERANKER_ENABLE_ASYNC_ENGINE"] = "false"
+# Keep tests deterministic and offline
+os.environ.setdefault("RERANKER_USE_OFFLINE_MODE", "false")
+os.environ.setdefault("RERANKER_MODEL_NAME", "BAAI/bge-reranker-v2-m3")
+os.environ.setdefault("RERANKER_ENABLE_ASYNC_ENGINE", "true")
+os.environ.setdefault("RERANKER_ENABLE_LOAD_BALANCER", "false")
 
-# Create mock torch module to avoid DLL loading issues on Windows
+# Stub heavy dependencies before application imports
 mock_torch = MagicMock()
 mock_torch.__version__ = "2.0.0"
 mock_torch.cuda.is_available.return_value = False
+mock_torch.cuda.empty_cache = MagicMock()
 mock_torch.backends.mps.is_available.return_value = False
 mock_torch.backends.mps.is_built.return_value = False
 mock_torch.float16 = "float16"
 mock_torch.float32 = "float32"
-
-# Mock sentence_transformers
-mock_sentence_transformers = MagicMock()
-mock_cross_encoder_class = MagicMock()
-mock_sentence_transformers.CrossEncoder = mock_cross_encoder_class
-
-# Insert mocks into sys.modules before any imports
 sys.modules["torch"] = mock_torch
+
+mock_sentence_transformers = MagicMock()
+mock_sentence_transformers.CrossEncoder = MagicMock()
 sys.modules["sentence_transformers"] = mock_sentence_transformers
 
-
-@pytest.fixture
-def mock_cross_encoder():
-    """Mock CrossEncoder for testing without loading actual model."""
-    with patch("src.models.reranker.CrossEncoder") as mock:
-        # Create a mock model instance
-        mock_instance = MagicMock()
-        
-        # Make predict return dynamic scores based on input length
-        def dynamic_predict(pairs, *args, **kwargs):
-            # Return a score for each pair
-            num_pairs = len(pairs)
-            # Generate scores that are decreasing to simulate ranking
-            import random
-            random.seed(42)  # For reproducibility
-            scores = [0.9 - (i * 0.1) + random.uniform(-0.05, 0.05) for i in range(num_pairs)]
-            return scores
-        
-        mock_instance.predict.side_effect = dynamic_predict
-        mock.return_value = mock_instance
-        yield mock
-
-
-@pytest.fixture
-def mock_reranker_model(mock_cross_encoder):
-    """Create a mock RerankerModel for testing."""
-    from src.models.reranker import RerankerModel, reset_reranker_model
-    
-    # Reset any existing singleton
-    reset_reranker_model()
-    
-    model = RerankerModel()
-    model.load()
-    
-    yield model
-    
-    # Cleanup
-    reset_reranker_model()
-
-
-@pytest.fixture
-def test_client(mock_cross_encoder):
-    """Create a test client for the FastAPI app."""
-    from fastapi.testclient import TestClient
-    from src.models.reranker import reset_reranker_model
-    
-    # Reset model before creating client
-    reset_reranker_model()
-    
-    # Import app after mocking
-    from src.main import app
-    
-    client = TestClient(app)
-    yield client
-    
-    # Cleanup
-    reset_reranker_model()
+# Transformers is only referenced when Qwen loads; stub to avoid import errors
+sys.modules.setdefault("transformers", MagicMock())
 
 
 @pytest.fixture
 def sample_documents():
-    """Sample documents for testing."""
     return [
         "Deep learning is a subset of machine learning that uses neural networks.",
         "The weather is sunny and warm today.",
@@ -104,5 +45,47 @@ def sample_documents():
 
 @pytest.fixture
 def sample_query():
-    """Sample query for testing."""
     return "What is deep learning and neural networks?"
+
+
+@pytest.fixture
+def dummy_engine():
+    class DummyEngine:
+        def __init__(self):
+            self.is_running = True
+            self.is_loaded = True
+
+        async def rerank(self, query, documents, top_k=None, return_documents=True, request_id=None):
+            limit = top_k or len(documents)
+            results = []
+            for idx, doc in enumerate(documents[:limit]):
+                entry = {"index": idx, "relevance_score": 1.0 / (idx + 1)}
+                if return_documents:
+                    entry["document"] = {"text": doc}
+                results.append(entry)
+            return results
+
+        def get_stats(self):
+            return {"pending_requests": 0, "total_requests": 0}
+
+    return DummyEngine()
+
+
+@pytest.fixture
+def test_client(monkeypatch, dummy_engine):
+    """Lightweight FastAPI test client with async engine stubbed."""
+
+    async def fake_get_async_engine():
+        return dummy_engine
+
+    async def fake_reset_async_engine():
+        dummy_engine.is_running = False
+
+    monkeypatch.setattr("src.engine.get_async_engine", fake_get_async_engine)
+    monkeypatch.setattr("src.engine.reset_async_engine", fake_reset_async_engine)
+
+    from src.main import create_app
+
+    app = create_app()
+    with TestClient(app) as client:
+        yield client

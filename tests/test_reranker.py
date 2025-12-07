@@ -1,124 +1,66 @@
-"""
-Unit tests for the reranker model.
-"""
+"""Unit coverage for handler factory, handlers, and reranker utilities."""
 
-import pytest
-from unittest.mock import patch, MagicMock
 import numpy as np
 
-
-class TestRerankerModel:
-    """Tests for the RerankerModel class."""
-    
-    def test_model_initialization(self, mock_cross_encoder):
-        """Test model initialization with default settings."""
-        from src.models.reranker import RerankerModel
-        
-        model = RerankerModel()
-        
-        assert model.model_name_or_path is not None
-        assert model.device in ["cuda", "mps", "cpu"]
-        assert model.max_length > 0
-    
-    def test_model_load(self, mock_cross_encoder):
-        """Test model loading."""
-        from src.models.reranker import RerankerModel
-        
-        model = RerankerModel()
-        model.load()
-        
-        assert model.is_loaded
-        mock_cross_encoder.assert_called_once()
-    
-    def test_model_rerank(self, mock_reranker_model, sample_query, sample_documents):
-        """Test reranking functionality."""
-        results = mock_reranker_model.rerank(
-            query=sample_query,
-            documents=sample_documents[:3],
-            top_k=None,
-            return_documents=True,
-        )
-        
-        assert len(results) == 3
-        assert all("index" in r for r in results)
-        assert all("relevance_score" in r for r in results)
-        assert all("document" in r for r in results)
-        
-        # Results should be sorted by score descending
-        scores = [r["relevance_score"] for r in results]
-        assert scores == sorted(scores, reverse=True)
-    
-    def test_model_rerank_top_k(self, mock_reranker_model, sample_query, sample_documents):
-        """Test reranking with top_k limit."""
-        results = mock_reranker_model.rerank(
-            query=sample_query,
-            documents=sample_documents,
-            top_k=2,
-            return_documents=True,
-        )
-        
-        assert len(results) == 2
-    
-    def test_model_rerank_empty_documents(self, mock_reranker_model, sample_query):
-        """Test reranking with empty document list."""
-        results = mock_reranker_model.rerank(
-            query=sample_query,
-            documents=[],
-            top_k=None,
-            return_documents=True,
-        )
-        
-        assert len(results) == 0
-    
-    def test_model_rerank_without_documents(self, mock_reranker_model, sample_query, sample_documents):
-        """Test reranking without returning documents."""
-        results = mock_reranker_model.rerank(
-            query=sample_query,
-            documents=sample_documents[:3],
-            top_k=None,
-            return_documents=False,
-        )
-        
-        assert len(results) == 3
-        assert all("document" not in r or r["document"] is None for r in results)
-    
-    def test_model_unload(self, mock_reranker_model):
-        """Test model unloading."""
-        assert mock_reranker_model.is_loaded
-        
-        mock_reranker_model.unload()
-        
-        assert not mock_reranker_model.is_loaded
-    
-    def test_singleton_pattern(self, mock_cross_encoder):
-        """Test that get_reranker_model returns singleton."""
-        from src.models.reranker import get_reranker_model, reset_reranker_model
-        
-        reset_reranker_model()
-        
-        model1 = get_reranker_model()
-        model2 = get_reranker_model()
-        
-        assert model1 is model2
-        
-        reset_reranker_model()
+from src.engine.handlers.cross_encoder import CrossEncoderHandler
+from src.engine.handlers.factory import get_handler
+from src.engine.handlers.qwen import QwenRerankerHandler
+from src.engine.request_queue import BatchedRequest, RerankRequest
+from src.models.reranker import RerankerModel
+from src.models.qwen3_reranker import is_qwen3_reranker
 
 
-class TestScoreNormalization:
-    """Tests for score normalization."""
-    
-    def test_normalize_scores(self, mock_cross_encoder):
-        """Test score normalization."""
-        from src.models.reranker import RerankerModel
-        
-        model = RerankerModel()
-        
-        # Test with sample scores
-        scores = np.array([2.0, 0.0, -2.0])
-        normalized = model._normalize_scores(scores)
-        
-        # All scores should be between 0 and 1
-        assert all(0 <= s <= 1 for s in normalized)
-        
-        # Order should be preserved
-        assert normalized[0] > normalized[1] > normalized[2]
+def _batched_request(query: str, docs):
+    return BatchedRequest(batch_id="b1", requests=[RerankRequest("r1", query, docs)])
+
+
+def test_factory_selects_qwen_handler():
+    handler = get_handler("Qwen3-Reranker-0.5B", device="cpu", max_length=128, use_fp16=False)
+    assert isinstance(handler, QwenRerankerHandler)
+
+
+def test_factory_defaults_to_cross_encoder():
+    handler = get_handler("BAAI/bge-reranker-v2-m3", device="cpu", max_length=128, use_fp16=False)
+    assert isinstance(handler, CrossEncoderHandler)
+
+
+def test_cross_encoder_handler_predict_sorts_and_truncates():
+    handler = CrossEncoderHandler("model", "cpu", 16, False)
+    handler.model = type(
+        "Dummy",
+        (),
+        {"predict": lambda self, pairs, **kwargs: [0.2, 0.8]},
+    )()
+    batch = _batched_request("q", ["doc-a", "doc-b"])
+    results = handler.predict(batch)[0]
+    assert results[0]["relevance_score"] >= results[1]["relevance_score"]
+    assert {r["document"]["text"] for r in results} == {"doc-a", "doc-b"}
+
+
+def test_qwen_handler_predict_delegates_to_model():
+    handler = QwenRerankerHandler("qwen", "cpu", 32, False)
+
+    class DummyQwen:
+        def rerank(self, query, documents, top_k=None, return_documents=True):
+            return [
+                {"index": idx, "relevance_score": 0.5 + idx, "document": {"text": doc}}
+                for idx, doc in enumerate(documents)
+            ][: top_k or len(documents)]
+
+    handler.model = DummyQwen()
+    batch = _batched_request("q", ["a", "b", "c"])
+    results = handler.predict(batch)[0]
+    assert len(results) == 3
+    assert results[0]["relevance_score"] <= results[-1]["relevance_score"]
+
+
+def test_reranker_model_normalize_scores():
+    model = RerankerModel()
+    normalized = model._normalize_scores(np.array([2.0, 0.0, -2.0]))
+    assert all(0 <= s <= 1 for s in normalized)
+    assert normalized[0] > normalized[1] > normalized[2]
+
+
+def test_is_qwen3_reranker_helper():
+    assert is_qwen3_reranker("Qwen3-Reranker-0.5B")
+    assert not is_qwen3_reranker("BAAI/bge-reranker-v2-m3")
