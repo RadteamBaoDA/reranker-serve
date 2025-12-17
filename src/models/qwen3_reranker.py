@@ -246,25 +246,54 @@ class Qwen3Reranker:
     
     @torch.no_grad()
     def _compute_logits(self, inputs: Dict[str, torch.Tensor]) -> List[float]:
-        """Compute relevance scores from model logits."""
-        # Get model outputs
-        outputs = self._model(**inputs)
-        
-        # Get logits for the last token position
-        batch_scores = outputs.logits[:, -1, :]
-        
-        # Extract scores for "yes" and "no" tokens
-        true_vector = batch_scores[:, self._token_true_id]
-        false_vector = batch_scores[:, self._token_false_id]
-        
-        # Stack and apply log_softmax
-        batch_scores = torch.stack([false_vector, true_vector], dim=1)
-        batch_scores = torch.nn.functional.log_softmax(batch_scores, dim=1)
-        
-        # Get probability of "yes" token
-        scores = batch_scores[:, 1].exp().tolist()
-        
-        return scores
+        """Compute relevance scores from model logits with MPS fallback."""
+        try:
+            # Get model outputs
+            outputs = self._model(**inputs)
+            
+            # Get logits for the last token position
+            batch_scores = outputs.logits[:, -1, :]
+            
+            # Extract scores for "yes" and "no" tokens
+            true_vector = batch_scores[:, self._token_true_id]
+            false_vector = batch_scores[:, self._token_false_id]
+            
+            # Stack and apply log_softmax
+            batch_scores = torch.stack([false_vector, true_vector], dim=1)
+            batch_scores = torch.nn.functional.log_softmax(batch_scores, dim=1)
+            
+            # Get probability of "yes" token
+            scores = batch_scores[:, 1].exp().tolist()
+            
+            return scores
+            
+        except RuntimeError as e:
+            error_msg = str(e)
+            # Handle MPS tensor size limitations
+            if "MPSGraph" in error_msg or "INT_MAX" in error_msg:
+                logger.warning(
+                    "mps_tensor_too_large_fallback_to_cpu",
+                    error=error_msg,
+                    device=self.device,
+                )
+                # Move inputs to CPU and retry
+                cpu_inputs = {k: v.cpu() for k, v in inputs.items()}
+                self._model = self._model.cpu()
+                self.device = "cpu"
+                
+                outputs = self._model(**cpu_inputs)
+                batch_scores = outputs.logits[:, -1, :]
+                true_vector = batch_scores[:, self._token_true_id]
+                false_vector = batch_scores[:, self._token_false_id]
+                batch_scores = torch.stack([false_vector, true_vector], dim=1)
+                batch_scores = torch.nn.functional.log_softmax(batch_scores, dim=1)
+                scores = batch_scores[:, 1].exp().tolist()
+                
+                logger.info("successfully_completed_inference_on_cpu_after_mps_fallback")
+                return scores
+            else:
+                # Re-raise other runtime errors
+                raise
     
     def rerank(
         self,

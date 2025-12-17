@@ -312,10 +312,29 @@ class RerankerModel:
                 batch_size=settings.batch_size,
                 show_progress_bar=False,
             )
-        except Exception as e:
-            # Fallback for MPS issues
-            if self.device == "mps" and settings.mps_fallback_to_cpu:
-                logger.warning(f"MPS inference failed, falling back to CPU: {e}")
+        except RuntimeError as e:
+            error_msg = str(e)
+            # Fallback for MPS issues (tensor size limitations, INT_MAX errors, etc.)
+            if self.device == "mps" and ("MPSGraph" in error_msg or "INT_MAX" in error_msg or "MPS" in error_msg):
+                logger.warning(
+                    "mps_inference_failed_fallback_to_cpu",
+                    error=error_msg,
+                    device=self.device,
+                )
+                self.device = "cpu"
+                self._model = None
+                self.load()
+                scores = self._model.predict(
+                    pairs,
+                    batch_size=settings.batch_size,
+                    show_progress_bar=False,
+                )
+                logger.info("successfully_completed_inference_on_cpu_after_mps_fallback")
+            elif self.device == "mps" and settings.mps_fallback_to_cpu:
+                logger.warning(
+                    "mps_general_error_fallback_to_cpu",
+                    error=error_msg,
+                )
                 self.device = "cpu"
                 self._model = None
                 self.load()

@@ -66,12 +66,32 @@ class CrossEncoderHandler(BaseHandler):
         for request in batch.requests:
             pairs = [[request.query, doc] for doc in request.documents]
             
-            # Run inference
-            scores = self.model.predict(
-                pairs,
-                batch_size=settings.batch_size,
-                show_progress_bar=False,
-            )
+            # Run inference with MPS fallback
+            try:
+                scores = self.model.predict(
+                    pairs,
+                    batch_size=settings.batch_size,
+                    show_progress_bar=False,
+                )
+            except RuntimeError as e:
+                error_msg = str(e)
+                # Handle MPS tensor size limitations
+                if self.device == "mps" and ("MPSGraph" in error_msg or "INT_MAX" in error_msg or "MPS" in error_msg):
+                    logger.warning(
+                        f"MPS inference failed, falling back to CPU: {error_msg}"
+                    )
+                    # Reload model on CPU
+                    self.device = "cpu"
+                    self.model = None
+                    self.load_model()
+                    scores = self.model.predict(
+                        pairs,
+                        batch_size=settings.batch_size,
+                        show_progress_bar=False,
+                    )
+                    logger.info("Successfully completed inference on CPU after MPS fallback")
+                else:
+                    raise
             
             # Normalize if configured
             if settings.normalize_scores:
