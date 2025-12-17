@@ -49,6 +49,11 @@ if ($Port -eq 0) { $Port = $DEFAULT_PORT }
 if ($Workers -eq 0) { $Workers = $DEFAULT_WORKERS }
 if ($Host -eq "") { $Host = $DEFAULT_HOST }
 
+# Set config file path if config.yml exists
+if (Test-Path "config.yml") {
+    $env:RERANKER_CONFIG_PATH = "config.yml"
+}
+
 function Write-ColorOutput($ForegroundColor, $Message) {
     $fc = $host.UI.RawUI.ForegroundColor
     $host.UI.RawUI.ForegroundColor = $ForegroundColor

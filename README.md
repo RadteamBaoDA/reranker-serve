@@ -63,7 +63,34 @@ curl -X POST http://localhost:8000/rerank \
 
 ## Configuration
 
-Set environment variables with `RERANKER_` prefix:
+The service supports multiple configuration methods with the following priority:
+
+1. **Environment Variables** (highest priority)
+2. **config.yml** - YAML configuration file
+3. **.env file** - Environment file
+4. **Default values** (lowest priority)
+
+### Using config.yml (Recommended)
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 8000
+  
+model:
+  name: BAAI/bge-reranker-v2-m3
+  cache_dir: ./models
+
+device:
+  name: cuda  # cuda, mps, cpu, or null for auto-detect
+```
+
+Set the config file path with:
+```bash
+export RERANKER_CONFIG_PATH=./config.yml
+```
+
+### Using Environment Variables
 
 ```env
 RERANKER_PORT=8000

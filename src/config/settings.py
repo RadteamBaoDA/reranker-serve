@@ -1,11 +1,14 @@
 """
 Configuration settings for the Reranker Service.
-Supports environment variables and optimized settings for different platforms.
+Supports environment variables, .env file, and YAML configuration files.
+Priority: Environment Variables > config.yml > .env > defaults
 """
 
 import os
 import platform
-from typing import Optional, Literal, List
+import yaml
+from typing import Optional, Literal, List, Dict, Any
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
@@ -199,5 +202,113 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",")]
 
 
+def load_yaml_config(yaml_path: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Load configuration from YAML file.
+    
+    Args:
+        yaml_path: Path to YAML config file. If None, checks RERANKER_CONFIG_PATH env var.
+        
+    Returns:
+        Dictionary with configuration values, empty dict if file not found.
+    """
+    # Determine config path
+    if yaml_path is None:
+        yaml_path = os.environ.get("RERANKER_CONFIG_PATH", "config.yml")
+    
+    config_file = Path(yaml_path)
+    
+    if not config_file.exists():
+        return {}
+    
+    try:
+        with open(config_file, 'r', encoding='utf-8') as f:
+            yaml_config = yaml.safe_load(f) or {}
+        
+        # Flatten nested YAML structure to match environment variable names
+        flat_config = {}
+        
+        # Map YAML sections to settings
+        if 'server' in yaml_config:
+            for key, value in yaml_config['server'].items():
+                flat_config[key] = value
+        
+        if 'model' in yaml_config:
+            model_cfg = yaml_config['model']
+            flat_config['model_name'] = model_cfg.get('name')
+            flat_config['model_path'] = model_cfg.get('path')
+            flat_config['model_cache_dir'] = model_cfg.get('cache_dir')
+            flat_config['use_offline_mode'] = model_cfg.get('use_offline_mode')
+        
+        if 'inference' in yaml_config:
+            for key, value in yaml_config['inference'].items():
+                flat_config[key] = value
+        
+        if 'device' in yaml_config:
+            device_cfg = yaml_config['device']
+            flat_config['device'] = device_cfg.get('name')
+            flat_config['force_cpu_only'] = device_cfg.get('force_cpu_only')
+            flat_config['use_fp16'] = device_cfg.get('use_fp16')
+            flat_config['mps_fallback_to_cpu'] = device_cfg.get('mps_fallback_to_cpu')
+        
+        if 'api' in yaml_config:
+            api_cfg = yaml_config['api']
+            flat_config['api_key'] = api_cfg.get('key')
+            flat_config['enable_cors'] = api_cfg.get('enable_cors')
+            flat_config['cors_origins'] = api_cfg.get('cors_origins')
+        
+        if 'load_balancer' in yaml_config:
+            lb_cfg = yaml_config['load_balancer']
+            flat_config['enable_load_balancer'] = lb_cfg.get('enabled')
+            flat_config['config_path'] = lb_cfg.get('config_path')
+        
+        if 'async_engine' in yaml_config:
+            ae_cfg = yaml_config['async_engine']
+            flat_config['enable_async_engine'] = ae_cfg.get('enabled')
+            flat_config['max_concurrent_batches'] = ae_cfg.get('max_concurrent_batches')
+            flat_config['inference_threads'] = ae_cfg.get('inference_threads')
+            flat_config['max_batch_size'] = ae_cfg.get('max_batch_size')
+            flat_config['max_batch_pairs'] = ae_cfg.get('max_batch_pairs')
+            flat_config['batch_wait_timeout'] = ae_cfg.get('batch_wait_timeout')
+            flat_config['max_queue_size'] = ae_cfg.get('max_queue_size')
+            flat_config['request_timeout'] = ae_cfg.get('request_timeout')
+        
+        if 'http' in yaml_config:
+            flat_config['trust_env'] = yaml_config['http'].get('trust_env')
+        
+        if 'logging' in yaml_config:
+            log_cfg = yaml_config['logging']
+            flat_config['log_level'] = log_cfg.get('level')
+            flat_config['json_logs'] = log_cfg.get('json_logs')
+            flat_config['log_dir'] = log_cfg.get('log_dir')
+            flat_config['log_retention_days'] = log_cfg.get('retention_days')
+            flat_config['log_max_bytes'] = log_cfg.get('max_bytes')
+            flat_config['log_backup_count'] = log_cfg.get('backup_count')
+        
+        # Remove None values to allow defaults to take effect
+        return {k: v for k, v in flat_config.items() if v is not None}
+        
+    except Exception as e:
+        # If YAML loading fails, log and continue with defaults
+        print(f"Warning: Failed to load YAML config from {yaml_path}: {e}")
+        return {}
+
+
+def create_settings() -> Settings:
+    """
+    Create Settings instance with proper configuration priority:
+    1. Environment variables (highest priority)
+    2. config.yml
+    3. .env file
+    4. Default values (lowest priority)
+    """
+    # Load YAML config first
+    yaml_config = load_yaml_config()
+    
+    # Create settings with YAML config as overrides
+    # Pydantic will handle the priority: env vars > init values > .env > defaults
+    return Settings(**yaml_config)
+
+
 # Global settings instance
-settings = Settings()
+settings = create_settings()

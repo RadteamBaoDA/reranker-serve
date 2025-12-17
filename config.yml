@@ -1,0 +1,155 @@
+# =============================================================================
+# Reranker Service - Configuration File
+# =============================================================================
+# This YAML file contains all configuration options for the reranker service.
+# You can use this instead of or in addition to .env file.
+# =============================================================================
+
+# =============================================================================
+# Server Configuration
+# =============================================================================
+server:
+  host: 0.0.0.0
+  port: 8000
+  workers: 1
+  reload: false
+
+# =============================================================================
+# Model Configuration
+# =============================================================================
+model:
+  # Model name or HuggingFace model ID
+  # Supported models:
+  #   - BAAI/bge-reranker-v2-m3 (multilingual, recommended)
+  #   - BAAI/bge-reranker-large (English)
+  #   - BAAI/bge-reranker-base (smaller, faster)
+  #   - Qwen/Qwen3-Reranker-0.6B (Qwen3-based, multilingual)
+  #   - Qwen/Qwen3-Reranker-4B (Qwen3-based, larger)
+  #   - Qwen/Qwen3-Reranker-8B (Qwen3-based, best quality)
+  name: Qwen/Qwen3-Reranker-0.6B
+  
+  # Local path to load model from disk (optional)
+  # If set, will load from this path instead of downloading
+  # path: /path/to/local/model
+  path: null
+  
+  # Directory to cache downloaded models
+  cache_dir: ./models
+  
+  # Enable offline mode (no internet access, requires local model)
+  use_offline_mode: false
+
+# =============================================================================
+# Inference Configuration
+# =============================================================================
+inference:
+  # Maximum sequence length
+  max_length: 512
+  
+  # Batch size for inference
+  batch_size: 32
+  
+  # Normalize scores to 0-1 range
+  normalize_scores: true
+
+# =============================================================================
+# Device Configuration
+# =============================================================================
+device:
+  # Device to use: cuda, mps, cpu, or leave empty for auto-detect
+  name: null  # null means auto-detect
+  
+  # Force CPU-only mode (disables CUDA/MPS completely)
+  force_cpu_only: false
+  
+  # Use FP16 precision (faster on CUDA, may cause issues on MPS)
+  use_fp16: true
+  
+  # Fallback to CPU if MPS operation fails
+  mps_fallback_to_cpu: true
+
+# =============================================================================
+# API Configuration
+# =============================================================================
+api:
+  # API key for authentication (optional)
+  # If set, all requests must include Authorization: Bearer <key>
+  # key: your-secret-key
+  key: null
+  
+  # Enable CORS
+  enable_cors: true
+  
+  # Allowed CORS origins (comma-separated, or * for all)
+  cors_origins: "*"
+
+# =============================================================================
+# Load Balancer Configuration
+# =============================================================================
+load_balancer:
+  # Enable load balancer mode (route requests to multiple backends)
+  enabled: false
+  
+  # Path to load balancer YAML configuration file
+  config_path: ./reranker_config.yaml
+
+# =============================================================================
+# Async Engine Configuration (vLLM-inspired)
+# =============================================================================
+async_engine:
+  # Enable async engine for concurrent request handling (recommended)
+  enabled: true
+  
+  # Maximum concurrent batches being processed simultaneously
+  max_concurrent_batches: 2
+  
+  # Number of threads for model inference in thread pool
+  inference_threads: 1
+  
+  # Maximum number of requests per batch
+  max_batch_size: 32
+  
+  # Maximum query-document pairs per batch
+  max_batch_pairs: 1024
+  
+  # Wait timeout for batch accumulation (seconds)
+  # Lower = less latency, higher = better batching
+  batch_wait_timeout: 0.01
+  
+  # Maximum queue size for pending requests
+  max_queue_size: 1000
+  
+  # Request timeout (seconds) - max time to wait for a request to complete
+  request_timeout: 60.0
+
+# =============================================================================
+# HTTP Client / Proxy Configuration
+# =============================================================================
+http:
+  # Trust environment variables for proxy settings
+  # (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
+  # Set to false to ignore proxy and make direct connections
+  # Set to true to use system proxy settings
+  trust_env: false
+
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+logging:
+  # Log level: critical, error, warning, info, debug, trace
+  level: info
+  
+  # Output logs in JSON format (recommended for production)
+  json_logs: false
+  
+  # Directory to store log files
+  log_dir: ./logs
+  
+  # Number of days to keep old log files (for cleanup on startup)
+  retention_days: 7
+  
+  # Maximum size of a single log file in bytes before rotation (10MB)
+  max_bytes: 10485760
+  
+  # Number of backup log files to keep (rotated by size)
+  backup_count: 5

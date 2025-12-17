@@ -127,6 +127,11 @@ echo -e "${GREEN}Using device: $DEVICE${NC}"
 # Set environment variable for device if not already set
 export RERANKER_DEVICE="${RERANKER_DEVICE:-$DEVICE}"
 
+# Set config file path if config.yml exists
+if [ -f "config.yml" ]; then
+    export RERANKER_CONFIG_PATH="config.yml"
+fi
+
 # Display configuration
 echo ""
 echo -e "${BLUE}Configuration:${NC}"
