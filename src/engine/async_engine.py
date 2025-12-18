@@ -42,7 +42,17 @@ class AsyncRerankerEngine:
         max_queue_size: Optional[int] = None,
         request_timeout: Optional[float] = None,
     ):
-        self.model_name_or_path = model_name_or_path or settings.get_model_load_path()
+        raw_path = model_name_or_path or settings.get_model_load_path()
+        # Convert relative paths to absolute paths
+        if raw_path and (raw_path.startswith('./') or raw_path.startswith('../') or (os.sep not in raw_path and '/' not in raw_path)):
+            # Check if it's a local path (not a HuggingFace model name)
+            if os.path.exists(raw_path) or '/' not in raw_path or raw_path.count('/') == 1:
+                self.model_name_or_path = os.path.abspath(raw_path)
+            else:
+                self.model_name_or_path = raw_path
+        else:
+            self.model_name_or_path = raw_path
+        
         self.device = device or settings.get_device()
         self.max_length = max_length or settings.max_length
         self.use_fp16 = use_fp16 if use_fp16 is not None else settings.use_fp16

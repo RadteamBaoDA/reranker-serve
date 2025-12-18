@@ -234,6 +234,7 @@ async def rerank(
 
 
 @router.post("/v1/rerank", response_model=CohereRerankResponse, tags=["Cohere Compatible"])
+@router.post("/v2/rerank", response_model=CohereRerankResponse, tags=["Cohere Compatible v2"])
 @router.post("/rerank/v1", response_model=CohereRerankResponse, tags=["Cohere Compatible"])
 async def cohere_rerank(
     request: CohereRerankRequest,
@@ -252,7 +253,7 @@ async def cohere_rerank(
     logger.debug(
         "cohere_rerank_endpoint_start",
         request_id=request_id,
-        endpoint="/v1/rerank",
+        endpoint="/v1/rerank or /v2/rerank",
         query_length=len(request.query),
         num_documents=len(request.documents),
         top_n=request.top_n,
@@ -314,6 +315,7 @@ async def cohere_rerank(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/v1/rerank", response_model=JinaRerankResponse, tags=["Jina AI Compatible v2"])
 @router.post("/api/v1/rerank", response_model=JinaRerankResponse, tags=["Jina AI Compatible"])
 async def jina_rerank(
     request: JinaRerankRequest,
@@ -332,7 +334,7 @@ async def jina_rerank(
     logger.debug(
         "jina_rerank_endpoint_start",
         request_id=request_id,
-        endpoint="/api/v1/rerank",
+        endpoint="/v1/rerank or /api/v1/rerank",
         query_length=len(request.query),
         num_documents=len(request.documents),
         top_n=request.top_n,

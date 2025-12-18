@@ -41,7 +41,17 @@ class Qwen3Reranker:
             max_length: Maximum sequence length (default: 8192 for Qwen3)
             use_fp16: Whether to use FP16 precision
         """
-        self.model_name_or_path = model_name_or_path or settings.get_model_load_path()
+        raw_path = model_name_or_path or settings.get_model_load_path()
+        # Convert relative paths to absolute paths
+        if raw_path and (raw_path.startswith('./') or raw_path.startswith('../') or not raw_path.startswith('/')):
+            # Check if it's a local path (not a HuggingFace model name)
+            if os.path.exists(raw_path) or '/' not in raw_path or raw_path.count('/') == 1:
+                self.model_name_or_path = os.path.abspath(raw_path)
+            else:
+                self.model_name_or_path = raw_path
+        else:
+            self.model_name_or_path = raw_path
+        
         self.device = device or settings.get_device()
         # Qwen3-Reranker supports up to 32k, but 8192 is recommended
         self.max_length = max_length or min(settings.max_length, 8192)
@@ -177,11 +187,19 @@ class Qwen3Reranker:
     
     def _get_model_source(self) -> str:
         """Determine the model source path."""
-        # Check explicit model_path
-        if settings.model_path and os.path.isdir(settings.model_path):
-            return settings.model_path
+        # Priority 1: Check explicit model_path
+        if settings.model_path:
+            abs_path = os.path.abspath(settings.model_path)
+            if os.path.isdir(abs_path):
+                logger.info(f"Using explicit model_path: {abs_path}")
+                return abs_path
         
-        # Check cache
+        # Priority 2: Check model_name_or_path as local path (already converted to absolute)
+        if os.path.isdir(self.model_name_or_path):
+            logger.info(f"Using model_name_or_path: {self.model_name_or_path}")
+            return self.model_name_or_path
+        
+        # Priority 3: Check cache
         cache_dir = os.path.abspath(settings.model_cache_dir)
         model_dir_name = settings.model_name.replace("/", "--")
         hf_cache_path = os.path.join(cache_dir, f"models--{model_dir_name}")
@@ -191,18 +209,21 @@ class Qwen3Reranker:
             if os.path.isdir(snapshots_dir):
                 snapshots = os.listdir(snapshots_dir)
                 if snapshots:
-                    return os.path.join(snapshots_dir, snapshots[0])
+                    cached_path = os.path.join(snapshots_dir, snapshots[0])
+                    logger.info(f"Using cached model: {cached_path}")
+                    return cached_path
         
-        # Check model_name_or_path as local path
-        if os.path.isdir(self.model_name_or_path):
-            return self.model_name_or_path
-        
-        # Download from HuggingFace
+        # Priority 4: Download from HuggingFace
         if settings.use_offline_mode:
             raise RuntimeError(
-                f"Model not found locally and offline mode is enabled."
+                f"Model not found locally and offline mode is enabled. "
+                f"Checked paths: model_path={settings.model_path}, "
+                f"model_name_or_path={self.model_name_or_path}, "
+                f"cache={hf_cache_path}. "
+                f"Please download the model first or set RERANKER_MODEL_PATH to a valid model directory."
             )
         
+        logger.info(f"Model not found locally, will download: {settings.model_name}")
         return settings.model_name
     
     def _format_instruction(

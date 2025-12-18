@@ -31,13 +31,13 @@ model:
   # Local path to load model from disk (optional)
   # If set, will load from this path instead of downloading
   # path: /path/to/local/model
-  path: null
+  path: ./models/Qwen3-Reranker-0.6B
   
   # Directory to cache downloaded models
   cache_dir: ./models
   
   # Enable offline mode (no internet access, requires local model)
-  use_offline_mode: false
+  use_offline_mode: true
 
 # =============================================================================
 # Inference Configuration
@@ -60,7 +60,7 @@ device:
   name: null  # null means auto-detect
   
   # Force CPU-only mode (disables CUDA/MPS completely)
-  force_cpu_only: false
+  force_cpu_only: true
   
   # Use FP16 precision (faster on CUDA, may cause issues on MPS)
   use_fp16: true
