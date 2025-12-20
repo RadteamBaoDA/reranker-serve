@@ -11,6 +11,9 @@ from .rerank import (
     JinaRerankResponse,
     JinaRerankResult,
     JinaUsage,
+    HuggingFaceRerankRequest,
+    HuggingFaceRerankResponse,
+    HuggingFaceRerankResult,
 )
 
 __all__ = [
@@ -25,4 +28,7 @@ __all__ = [
     "JinaRerankResponse",
     "JinaRerankResult",
     "JinaUsage",
+    "HuggingFaceRerankRequest",
+    "HuggingFaceRerankResponse",
+    "HuggingFaceRerankResult",
 ]

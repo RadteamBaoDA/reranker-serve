@@ -133,3 +133,42 @@ class JinaRerankResponse(BaseModel):
     model: str
     usage: JinaUsage
     results: List[JinaRerankResult]
+
+
+# HuggingFace-compatible API
+
+class HuggingFaceRerankRequest(BaseModel):
+    """HuggingFace-compatible rerank request."""
+    query: str = Field(..., description="The search query")
+    texts: List[str] = Field(..., description="List of texts/documents to rerank")
+    top_k: Optional[int] = Field(default=None, description="Number of top results to return", alias="top_n")
+    return_texts: bool = Field(default=True, description="Return text in response", alias="return_documents")
+    model: Optional[str] = Field(default=None, description="Model to use (ignored, uses configured model)")
+    truncate: bool = Field(default=True, description="Truncate inputs if too long")
+    
+    model_config = ConfigDict(
+        populate_by_name=True,  # Allow both field name and alias
+        json_schema_extra={
+            "example": {
+                "query": "What is deep learning?",
+                "texts": [
+                    "Deep learning is a subset of machine learning.",
+                    "The weather is nice today."
+                ],
+                "top_k": 2
+            }
+        }
+    )
+
+
+class HuggingFaceRerankResult(BaseModel):
+    """HuggingFace-compatible result format."""
+    index: int = Field(..., description="Document index")
+    score: float = Field(..., description="Relevance score")
+    text: Optional[str] = Field(default=None, description="Document text")
+
+
+class HuggingFaceRerankResponse(BaseModel):
+    """HuggingFace-compatible rerank response."""
+    results: List[HuggingFaceRerankResult] = Field(..., description="Ranked results")
+    model: str = Field(..., description="Model used")

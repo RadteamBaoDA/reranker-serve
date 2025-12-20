@@ -7,6 +7,8 @@ The Reranker Service provides multiple API endpoints compatible with different p
 | Endpoint | Description | Compatibility |
 |----------|-------------|---------------|
 | `POST /rerank` | Native API | Reranker Service |
+| `POST /reranking` | HuggingFace-compatible | HuggingFace Inference API |
+| `POST /v1/reranking` | HuggingFace-compatible | HuggingFace Inference API |
 | `POST /v1/rerank` | Cohere-compatible | Cohere API |
 | `POST /api/v1/rerank` | Jina-compatible | Jina AI API |
 | `GET /health` | Health check | - |
@@ -61,6 +63,66 @@ POST /rerank
   ]
 }
 ```
+
+---
+
+## HuggingFace-Compatible API
+
+```http
+POST /reranking
+POST /v1/reranking
+```
+
+### Request
+
+```json
+{
+  "query": "What is deep learning?",
+  "texts": [
+    "Deep learning is a subset of machine learning.",
+    "The weather is nice today."
+  ],
+  "top_k": 2,
+  "return_texts": true
+}
+```
+
+### Parameters
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `query` | string | Yes | The query to rank documents against |
+| `texts` | array | Yes | List of texts to rerank (HuggingFace format) |
+| `top_k` | integer | No | Number of top results to return (alias: `top_n`) |
+| `return_texts` | boolean | No | Include text in response (default: true) |
+| `model` | string | No | Model name (ignored, uses configured model) |
+| `truncate` | boolean | No | Truncate long inputs (default: true) |
+
+### Response
+
+```json
+{
+  "model": "Qwen/Qwen3-Reranker-0.6B",
+  "results": [
+    {
+      "index": 0,
+      "score": 0.95,
+      "text": "Deep learning is a subset of machine learning."
+    },
+    {
+      "index": 1,
+      "score": 0.12,
+      "text": "The weather is nice today."
+    }
+  ]
+}
+```
+
+**Key Differences from Native API:**
+- Uses `texts` field instead of `documents`
+- Uses `score` field instead of `relevance_score` in results
+- Uses `top_k` instead of `top_n` (both accepted via aliases)
+- Uses `return_texts` instead of `return_documents` (both accepted)
 
 ---
 

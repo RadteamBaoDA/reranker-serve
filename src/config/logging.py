@@ -201,8 +201,3 @@ def bind_request_context(
 def clear_request_context() -> None:
     """Clear all bound context variables."""
     structlog.contextvars.clear_contextvars()
-
-
-# Initialize logging on module import with default settings
-# This can be reconfigured later by calling configure_logging()
-configure_logging()

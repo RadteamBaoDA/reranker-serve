@@ -17,9 +17,15 @@ from src.config import settings, configure_logging, get_logger, bind_request_con
 # Configure structured logging
 configure_logging(
     log_level=settings.log_level,
-    json_logs=os.environ.get("RERANKER_JSON_LOGS", "false").lower() == "true",
+    json_logs=settings.json_logs,
 )
 logger = get_logger(__name__)
+logger.info(
+    "logging_configured",
+    log_level=settings.log_level.upper(),
+    json_logs=settings.json_logs,
+    log_dir=settings.log_dir,
+)
 
 
 # Configure proxy bypass for internal requests

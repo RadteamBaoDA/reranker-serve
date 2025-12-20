@@ -22,6 +22,9 @@ from src.schemas import (
     JinaRerankResponse,
     JinaRerankResult,
     JinaUsage,
+    HuggingFaceRerankRequest,
+    HuggingFaceRerankResponse,
+    HuggingFaceRerankResult,
 )
 
 logger = get_logger(__name__)
@@ -398,4 +401,79 @@ async def jina_rerank(
             elapsed_ms=round(elapsed * 1000, 2),
         )
         logger.error(f"Jina rerank error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/v1/reranking", response_model=HuggingFaceRerankResponse, tags=["HuggingFace Compatible"])
+@router.post("/reranking", response_model=HuggingFaceRerankResponse, tags=["HuggingFace Compatible"])
+async def huggingface_rerank(
+    request: HuggingFaceRerankRequest,
+    _: bool = Depends(verify_api_key),
+) -> HuggingFaceRerankResponse:
+    """
+    HuggingFace-compatible rerank endpoint.
+    
+    Compatible with HuggingFace's Inference API rerank format.
+    Uses 'texts' field instead of 'documents' for compatibility.
+    Supports concurrent request handling with automatic batching.
+    """
+    import time
+    endpoint_start = time.time()
+    request_id = str(uuid.uuid4())
+    
+    logger.debug(
+        "huggingface_rerank_endpoint_start",
+        request_id=request_id,
+        endpoint="/reranking or /v1/reranking",
+        query_length=len(request.query),
+        num_texts=len(request.texts),
+        top_k=request.top_k,
+        return_texts=request.return_texts,
+        model=request.model,
+    )
+    
+    try:
+        results = await get_rerank_results(
+            query=request.query,
+            documents=request.texts,  # Map texts to documents
+            top_k=request.top_k,
+            return_documents=request.return_texts,
+            request_id=request_id,
+        )
+        
+        # Convert to HuggingFace response format
+        hf_results = [
+            HuggingFaceRerankResult(
+                index=r["index"],
+                score=r["relevance_score"],
+                text=r["document"]["text"] if r.get("document") else None,
+            )
+            for r in results
+        ]
+        
+        response = HuggingFaceRerankResponse(
+            results=hf_results,
+            model=settings.model_name,
+        )
+        
+        elapsed = time.time() - endpoint_start
+        logger.debug(
+            "huggingface_rerank_endpoint_success",
+            request_id=request_id,
+            num_results=len(hf_results),
+            elapsed_ms=round(elapsed * 1000, 2),
+        )
+        
+        return response
+        
+    except Exception as e:
+        elapsed = time.time() - endpoint_start
+        logger.debug(
+            "huggingface_rerank_endpoint_error",
+            request_id=request_id,
+            error=str(e),
+            error_type=type(e).__name__,
+            elapsed_ms=round(elapsed * 1000, 2),
+        )
+        logger.error(f"HuggingFace rerank error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

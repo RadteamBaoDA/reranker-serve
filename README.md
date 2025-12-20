@@ -6,10 +6,10 @@ A high-performance reranker service using Sentence Transformer models, compatibl
 
 - 🚀 **FastAPI-based REST API** with async engine (vLLM-inspired architecture)
 - 📊 **Dynamic Batching** - Automatic request batching for optimal GPU utilization
-- 🔄 **API Compatibility** - Compatible with Jina AI and Cohere reranker APIs
+- 🔄 **API Compatibility** - Compatible with HuggingFace, Jina AI, and Cohere reranker APIs
 - 🤖 **Multiple Models** - BAAI/bge-reranker and Qwen3-reranker support
 - 💻 **Multi-platform** - CUDA, Apple Silicon (MPS), and CPU
--  **Load Balancing** - LiteLLM-style router for multiple backends
+- ⚖️ **Load Balancing** - LiteLLM-style router for multiple backends
 - 🐳 **Docker Ready** - Includes Dockerfile and docker-compose.yml
 
 ## Quick Start
@@ -42,6 +42,8 @@ docker-compose up -d
 
 ## Basic Usage
 
+### Native API
+
 ```bash
 curl -X POST http://localhost:8000/rerank \
   -H "Content-Type: application/json" \
@@ -51,6 +53,20 @@ curl -X POST http://localhost:8000/rerank \
     "top_n": 2
   }'
 ```
+
+### HuggingFace-Compatible API
+
+```bash
+curl -X POST http://localhost:8000/reranking \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What is deep learning?",
+    "texts": ["Deep learning is a subset of ML.", "The weather is nice."],
+    "top_k": 2
+  }'
+```
+
+**Note:** HuggingFace API uses `texts` field instead of `documents` and `score` instead of `relevance_score`.
 
 ## Supported Models
 
