@@ -25,6 +25,7 @@ from src.schemas import (
     HuggingFaceRerankRequest,
     HuggingFaceRerankResponse,
     HuggingFaceRerankResult,
+    HuggingFaceUsage,
 )
 
 logger = get_logger(__name__)
@@ -139,6 +140,11 @@ def extract_document_text(doc: Union[str, dict, None]) -> Optional[str]:
 
 def extract_document_texts(documents: Union[List[str], List[dict]]) -> List[str]:
     """Extract text from documents (handles both string and dict formats)."""
+    # Handle None input
+    if documents is None:
+        logger.debug("extract_document_texts_received_none")
+        return []
+    
     logger.debug(
         "extract_document_texts_start",
         num_documents=len(documents),
@@ -175,30 +181,34 @@ def extract_document_texts(documents: Union[List[str], List[dict]]) -> List[str]
     return texts
 
 
-@router.post("/rerank", response_model=RerankResponse, tags=["Rerank"])
+@router.post("/rerank", tags=["Rerank"])
 async def rerank(
     request: RerankRequest,
     _: bool = Depends(verify_api_key),
-) -> RerankResponse:
+):
     """
     Rerank documents based on relevance to a query.
     
     Supports both native format (documents field) and HuggingFace format (texts field).
+    Returns response in the same format as the request for compatibility.
     Supports concurrent request handling with automatic batching.
     
     Native format:
-        {"query": "...", "documents": [...], "top_n": 5}
+        Request:  {"query": "...", "documents": [...], "top_n": 5}
+        Response: {"results": [{"index": 0, "relevance_score": 0.9, "document": {...}}], "model": "..."}
     
     HuggingFace format:
-        {"query": "...", "texts": [...], "top_k": 5}
+        Request:  {"query": "...", "texts": [...], "top_k": 5}
+        Response: {"results": [{"index": 0, "score": 0.9, "text": "..."}], "model": "..."}
     """
     import time
     endpoint_start = time.time()
     request_id = str(uuid.uuid4())
     
-    # Get documents list (works for both formats)
+    # Get documents list and determine format
     documents = request.get_documents()
-    format_type = "native" if request.documents is not None else "huggingface"
+    is_huggingface_format = request.texts is not None
+    format_type = "huggingface" if is_huggingface_format else "native"
     
     logger.debug(
         "rerank_endpoint_start",
@@ -212,34 +222,64 @@ async def rerank(
     )
     
     try:
+        # Extract document texts to handle both string and dict formats
+        document_texts = extract_document_texts(documents)
+        
         results = await get_rerank_results(
             query=request.query,
-            documents=documents,
+            documents=document_texts,
             top_k=request.top_n,
             return_documents=request.return_documents,
             request_id=request_id,
         )
         
-        # Convert to response format
-        rerank_results = [
-            RerankResult(
-                index=r["index"],
-                relevance_score=r["relevance_score"],
-                document=Document(text=extract_document_text(r.get("document"))) if r.get("document") else None,
-            )
-            for r in results
-        ]
+        # Ensure results is not None
+        if results is None:
+            results = []
         
-        response = RerankResponse(
-            results=rerank_results,
-            model=settings.model_name,
-        )
+        # Return appropriate format based on request format
+        if is_huggingface_format:
+            # HuggingFace format response - only include index and score
+            hf_results = [
+                HuggingFaceRerankResult(
+                    index=r["index"],
+                    score=r["relevance_score"],
+                )
+                for r in results
+                if r is not None and isinstance(r, dict)
+            ]
+            
+            # Estimate token usage
+            total_chars = len(request.query) + sum(len(d) for d in document_texts)
+            estimated_tokens = total_chars // 4
+            
+            response = HuggingFaceRerankResponse(
+                model=settings.model_name,
+                usage=HuggingFaceUsage(total_tokens=estimated_tokens),
+                results=hf_results,
+            )
+        else:
+            # Native format response
+            rerank_results = [
+                RerankResult(
+                    index=r["index"],
+                    relevance_score=r["relevance_score"],
+                    document=Document(text=extract_document_text(r.get("document"))) if r.get("document") else None,
+                )
+                for r in results
+                if r is not None and isinstance(r, dict)
+            ]
+            
+            response = RerankResponse(
+                results=rerank_results,
+                model=settings.model_name,
+            )
         
         elapsed = time.time() - endpoint_start
         logger.debug(
             "rerank_endpoint_success",
             request_id=request_id,
-            num_results=len(rerank_results),
+            num_results=len(response.results),
             elapsed_ms=round(elapsed * 1000, 2),
         )
         
@@ -298,6 +338,10 @@ async def cohere_rerank(
             request_id=request_id,
         )
         
+        # Ensure results is not None
+        if results is None:
+            results = []
+        
         # Convert to Cohere response format
         cohere_results = [
             CohereRerankResult(
@@ -306,6 +350,7 @@ async def cohere_rerank(
                 document={"text": extract_document_text(r.get("document"))} if r.get("document") else None,
             )
             for r in results
+            if r is not None and isinstance(r, dict)
         ]
         
         response = CohereRerankResponse(
@@ -379,6 +424,10 @@ async def jina_rerank(
             request_id=request_id,
         )
         
+        # Ensure results is not None
+        if results is None:
+            results = []
+        
         # Convert to Jina response format
         jina_results = [
             JinaRerankResult(
@@ -387,6 +436,7 @@ async def jina_rerank(
                 document=Document(text=extract_document_text(r.get("document"))) if r.get("document") else None,
             )
             for r in results
+            if r is not None and isinstance(r, dict)
         ]
         
         # Estimate token usage (rough approximation)
@@ -463,19 +513,28 @@ async def huggingface_rerank(
             request_id=request_id,
         )
         
-        # Convert to HuggingFace response format
+        # Ensure results is not None
+        if results is None:
+            results = []
+        
+        # Convert to HuggingFace response format - only include index and score
         hf_results = [
             HuggingFaceRerankResult(
                 index=r["index"],
                 score=r["relevance_score"],
-                text=extract_document_text(r.get("document")),
             )
             for r in results
+            if r is not None and isinstance(r, dict)
         ]
         
+        # Estimate token usage
+        total_chars = len(request.query) + sum(len(t) for t in request.texts)
+        estimated_tokens = total_chars // 4
+        
         response = HuggingFaceRerankResponse(
-            results=hf_results,
             model=settings.model_name,
+            usage=HuggingFaceUsage(total_tokens=estimated_tokens),
+            results=hf_results,
         )
         
         elapsed = time.time() - endpoint_start

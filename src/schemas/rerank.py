@@ -69,7 +69,7 @@ class RerankResult(BaseModel):
     """Single rerank result."""
     index: int = Field(..., description="Original document index")
     relevance_score: float = Field(..., description="Relevance score")
-    document: Optional[Document] = Field(default=None, description="Document object")
+    document: Optional[Union[Document, dict]] = Field(default=None, description="Document object or dict")
 
 
 class RerankResponse(BaseModel):
@@ -192,9 +192,20 @@ class HuggingFaceRerankResult(BaseModel):
     index: int = Field(..., description="Document index")
     score: float = Field(..., description="Relevance score")
     text: Optional[str] = Field(default=None, description="Document text")
+    
+    model_config = ConfigDict(
+        # Exclude None values from response
+        exclude_none=True,
+    )
+
+
+class HuggingFaceUsage(BaseModel):
+    """HuggingFace usage information."""
+    total_tokens: int = Field(default=0, description="Total tokens used")
 
 
 class HuggingFaceRerankResponse(BaseModel):
     """HuggingFace-compatible rerank response."""
-    results: List[HuggingFaceRerankResult] = Field(..., description="Ranked results")
     model: str = Field(..., description="Model used")
+    usage: HuggingFaceUsage = Field(..., description="Usage information")
+    results: List[HuggingFaceRerankResult] = Field(..., description="Ranked results")

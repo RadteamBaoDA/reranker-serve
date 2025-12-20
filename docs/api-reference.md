@@ -22,10 +22,17 @@ The Reranker Service provides multiple API endpoints compatible with different p
 POST /rerank
 ```
 
-**Now supports both native and HuggingFace formats!**
+**Supports both native and HuggingFace formats with automatic response format matching!**
 
-### Native Format Request
+The endpoint automatically detects your request format and returns the corresponding response format:
+- Request with `documents` → Native response format
+- Request with `texts` → HuggingFace response format
 
+This ensures clients get the expected format and prevents errors like "'str' object has no attribute get".
+
+### Native Format Request → Native Response
+
+**Request:**
 ```json
 {
   "query": "What is deep learning?",
@@ -38,8 +45,23 @@ POST /rerank
 }
 ```
 
-### HuggingFace Format Request (same endpoint)
+**Response:**
+```json
+{
+  "results": [
+    {
+      "index": 0,
+      "relevance_score": 0.95,
+      "document": {"text": "Deep learning is a subset of machine learning."}
+    }
+  ],
+  "model": "..."
+}
+```
 
+### HuggingFace Format Request → HuggingFace Response
+
+**Request:**
 ```json
 {
   "query": "What is deep learning?",
@@ -52,19 +74,37 @@ POST /rerank
 }
 ```
 
+**Response:**
+```json
+{
+  "results": [
+    {
+      "index": 0,
+      "score": 0.95,
+      "text": "Deep learning is a subset of machine learning."
+    }
+  ],
+  "model": "..."
+}
+```
+
 ### Parameters
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `query` | string | Yes | The query to rank documents against |
-| `documents` | array | Either this or `texts` | List of documents to rerank (native format) |
-| `texts` | array | Either this or `documents` | List of texts to rerank (HuggingFace format) |
+| `documents` | array | Either this or `texts` | List of documents (native format) → Returns native response |
+| `texts` | array | Either this or `documents` | List of texts (HuggingFace format) → Returns HuggingFace response |
 | `top_n` | integer | No | Number of top results (alias: `top_k`) |
 | `top_k` | integer | No | Number of top results (alias: `top_n`) |
-| `return_documents` | boolean | No | Include document text in response (alias: `return_texts`) |
+| `return_documents` | boolean | No | Include text in response (alias: `return_texts`) |
 | `return_texts` | boolean | No | Include text in response (alias: `return_documents`) |
 
-**Note:** You must provide either `documents` OR `texts`, but not both or neither.
+**Important:** 
+- You must provide either `documents` OR `texts`, not both or neither
+- The response format automatically matches your request format:
+  - `documents` field → Native response with `relevance_score` and `document` object  
+  - `texts` field → HuggingFace response with `score` and `text` string
 
 ### Response
 

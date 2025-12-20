@@ -45,6 +45,7 @@ docker-compose up -d
 ### Native API (/rerank endpoint)
 
 The `/rerank` endpoint now supports **both** native and HuggingFace formats!
+**The response format automatically matches your request format.**
 
 **Native format:**
 ```bash
@@ -55,9 +56,10 @@ curl -X POST http://localhost:8000/rerank \
     "documents": ["Deep learning is a subset of ML.", "The weather is nice."],
     "top_n": 2
   }'
+# Response: {"results": [{"index": 0, "relevance_score": 0.95, "document": {...}}], ...}
 ```
 
-**HuggingFace format (same endpoint):**
+**HuggingFace format (same endpoint, different response!):**
 ```bash
 curl -X POST http://localhost:8000/rerank \
   -H "Content-Type: application/json" \
@@ -66,6 +68,7 @@ curl -X POST http://localhost:8000/rerank \
     "texts": ["Deep learning is a subset of ML.", "The weather is nice."],
     "top_k": 2
   }'
+# Response: {"results": [{"index": 0, "score": 0.95, "text": "..."}], ...}
 ```
 
 ### HuggingFace-Compatible API (/reranking endpoint)
@@ -81,9 +84,34 @@ curl -X POST http://localhost:8000/reranking \
 ```
 
 **Note:** 
-- `/rerank` accepts both `documents` (native) and `texts` (HuggingFace) formats
-- `/reranking` is specifically for HuggingFace format
+- `/rerank` **automatically detects** your request format and returns the matching response:
+  - Use `documents` → Get native response with `relevance_score` and `document` object
+  - Use `texts` → Get HuggingFace response with `score` and `text` string
+- `/reranking` always returns HuggingFace format regardless of input
 - Both `top_n` and `top_k` work as aliases on either endpoint
+- **Fix:** This solves the "'str' object has no attribute get" error by ensuring clients receive the expected response format
+
+### Example Responses
+
+**Native format request** (`documents` field):
+```json
+{
+  "results": [
+    {"index": 0, "relevance_score": 0.95, "document": {"text": "..."}}
+  ],
+  "model": "..."
+}
+```
+
+**HuggingFace format request** (`texts` field):
+```json
+{
+  "results": [
+    {"index": 0, "score": 0.95, "text": "..."}
+  ],
+  "model": "..."
+}
+```
 
 ## Supported Models
 

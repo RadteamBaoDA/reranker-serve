@@ -14,6 +14,7 @@ from .rerank import (
     HuggingFaceRerankRequest,
     HuggingFaceRerankResponse,
     HuggingFaceRerankResult,
+    HuggingFaceUsage,
 )
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     "HuggingFaceRerankRequest",
     "HuggingFaceRerankResponse",
     "HuggingFaceRerankResult",
+    "HuggingFaceUsage",
 ]

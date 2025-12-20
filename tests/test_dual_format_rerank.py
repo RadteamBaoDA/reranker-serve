@@ -75,8 +75,18 @@ try:
         result = response.json()
         print("✅ HuggingFace format works!")
         print(f"Results: {len(result['results'])} documents ranked")
+        
+        # Verify HuggingFace response format (should have 'score' not 'relevance_score')
+        first_result = result["results"][0] if result["results"] else {}
+        if 'score' in first_result:
+            print("✅ Response is in HuggingFace format (has 'score' field)")
+        elif 'relevance_score' in first_result:
+            print("❌ ERROR: Response is in native format but should be HuggingFace format!")
+            print(f"   Response: {result}")
+        
         for i, res in enumerate(result["results"][:2]):
-            print(f"  {i+1}. Index {res['index']}, Score: {res['relevance_score']:.4f}")
+            score = res.get('score', res.get('relevance_score', 0))
+            print(f"  {i+1}. Index {res['index']}, Score: {score:.4f}")
     else:
         print(f"❌ Error: {response.text}")
         
