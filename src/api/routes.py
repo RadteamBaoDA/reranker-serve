@@ -5,7 +5,7 @@ Optimized for async concurrent request handling.
 """
 
 import uuid
-from typing import List, Union
+from typing import List, Union, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Header
 
@@ -126,6 +126,17 @@ def verify_api_key(authorization: str = Header(default=None)) -> bool:
     return True
 
 
+def extract_document_text(doc: Union[str, dict, None]) -> Optional[str]:
+    """Safely extract text from a document object."""
+    if doc is None:
+        return None
+    if isinstance(doc, str):
+        return doc
+    if isinstance(doc, dict):
+        return doc.get("text") or doc.get("content") or ""
+    return str(doc)
+
+
 def extract_document_texts(documents: Union[List[str], List[dict]]) -> List[str]:
     """Extract text from documents (handles both string and dict formats)."""
     logger.debug(
@@ -172,19 +183,30 @@ async def rerank(
     """
     Rerank documents based on relevance to a query.
     
-    This is the native API format for the reranker service.
+    Supports both native format (documents field) and HuggingFace format (texts field).
     Supports concurrent request handling with automatic batching.
+    
+    Native format:
+        {"query": "...", "documents": [...], "top_n": 5}
+    
+    HuggingFace format:
+        {"query": "...", "texts": [...], "top_k": 5}
     """
     import time
     endpoint_start = time.time()
     request_id = str(uuid.uuid4())
     
+    # Get documents list (works for both formats)
+    documents = request.get_documents()
+    format_type = "native" if request.documents is not None else "huggingface"
+    
     logger.debug(
         "rerank_endpoint_start",
         request_id=request_id,
         endpoint="/rerank",
+        format=format_type,
         query_length=len(request.query),
-        num_documents=len(request.documents),
+        num_documents=len(documents),
         top_n=request.top_n,
         return_documents=request.return_documents,
     )
@@ -192,7 +214,7 @@ async def rerank(
     try:
         results = await get_rerank_results(
             query=request.query,
-            documents=request.documents,
+            documents=documents,
             top_k=request.top_n,
             return_documents=request.return_documents,
             request_id=request_id,
@@ -203,7 +225,7 @@ async def rerank(
             RerankResult(
                 index=r["index"],
                 relevance_score=r["relevance_score"],
-                document=Document(text=r["document"]["text"]) if r.get("document") else None,
+                document=Document(text=extract_document_text(r.get("document"))) if r.get("document") else None,
             )
             for r in results
         ]
@@ -281,7 +303,7 @@ async def cohere_rerank(
             CohereRerankResult(
                 index=r["index"],
                 relevance_score=r["relevance_score"],
-                document={"text": r["document"]["text"]} if r.get("document") else None,
+                document={"text": extract_document_text(r.get("document"))} if r.get("document") else None,
             )
             for r in results
         ]
@@ -362,7 +384,7 @@ async def jina_rerank(
             JinaRerankResult(
                 index=r["index"],
                 relevance_score=r["relevance_score"],
-                document=Document(text=r["document"]["text"]) if r.get("document") else None,
+                document=Document(text=extract_document_text(r.get("document"))) if r.get("document") else None,
             )
             for r in results
         ]
@@ -446,7 +468,7 @@ async def huggingface_rerank(
             HuggingFaceRerankResult(
                 index=r["index"],
                 score=r["relevance_score"],
-                text=r["document"]["text"] if r.get("document") else None,
+                text=extract_document_text(r.get("document")),
             )
             for r in results
         ]

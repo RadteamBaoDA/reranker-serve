@@ -22,7 +22,9 @@ The Reranker Service provides multiple API endpoints compatible with different p
 POST /rerank
 ```
 
-### Request
+**Now supports both native and HuggingFace formats!**
+
+### Native Format Request
 
 ```json
 {
@@ -36,14 +38,33 @@ POST /rerank
 }
 ```
 
+### HuggingFace Format Request (same endpoint)
+
+```json
+{
+  "query": "What is deep learning?",
+  "texts": [
+    "Deep learning is a subset of machine learning.",
+    "The weather is nice today."
+  ],
+  "top_k": 2,
+  "return_texts": true
+}
+```
+
 ### Parameters
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `query` | string | Yes | The query to rank documents against |
-| `documents` | array | Yes | List of documents to rerank |
-| `top_n` | integer | No | Number of top results to return |
-| `return_documents` | boolean | No | Include document text in response |
+| `documents` | array | Either this or `texts` | List of documents to rerank (native format) |
+| `texts` | array | Either this or `documents` | List of texts to rerank (HuggingFace format) |
+| `top_n` | integer | No | Number of top results (alias: `top_k`) |
+| `top_k` | integer | No | Number of top results (alias: `top_n`) |
+| `return_documents` | boolean | No | Include document text in response (alias: `return_texts`) |
+| `return_texts` | boolean | No | Include text in response (alias: `return_documents`) |
+
+**Note:** You must provide either `documents` OR `texts`, but not both or neither.
 
 ### Response
 

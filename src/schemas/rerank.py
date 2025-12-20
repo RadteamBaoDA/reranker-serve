@@ -4,7 +4,7 @@ Compatible with Jina AI and Cohere API formats.
 """
 
 from typing import List, Optional, Union
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 
 # Common schemas
@@ -17,26 +17,52 @@ class Document(BaseModel):
 # Generic Rerank API (our native format)
 
 class RerankRequest(BaseModel):
-    """Native rerank request format."""
+    """Native rerank request format - supports both native and HuggingFace formats."""
     query: str = Field(..., description="The search query")
-    documents: List[str] = Field(..., description="List of documents to rerank")
-    top_n: Optional[int] = Field(default=None, description="Number of top results to return")
-    return_documents: bool = Field(default=True, description="Whether to return document text")
+    documents: Optional[List[str]] = Field(default=None, description="List of documents to rerank (native format)")
+    texts: Optional[List[str]] = Field(default=None, description="List of texts to rerank (HuggingFace format)")
+    top_n: Optional[int] = Field(default=None, description="Number of top results to return", alias="top_k")
+    return_documents: bool = Field(default=True, description="Whether to return document text", alias="return_texts")
     
     model_config = ConfigDict(
+        populate_by_name=True,  # Allow both field name and alias
         json_schema_extra={
-            "example": {
-                "query": "What is deep learning?",
-                "documents": [
-                    "Deep learning is a subset of machine learning.",
-                    "The weather is nice today.",
-                    "Neural networks are used in deep learning."
-                ],
-                "top_n": 2,
-                "return_documents": True
-            }
+            "examples": [
+                {
+                    "query": "What is deep learning?",
+                    "documents": [
+                        "Deep learning is a subset of machine learning.",
+                        "The weather is nice today.",
+                        "Neural networks are used in deep learning."
+                    ],
+                    "top_n": 2,
+                    "return_documents": True
+                },
+                {
+                    "query": "What is deep learning?",
+                    "texts": [
+                        "Deep learning is a subset of machine learning.",
+                        "The weather is nice today."
+                    ],
+                    "top_k": 2,
+                    "return_texts": True
+                }
+            ]
         }
     )
+    
+    @model_validator(mode='after')
+    def validate_documents_or_texts(self):
+        """Ensure either documents or texts is provided, not both or neither."""
+        if self.documents is None and self.texts is None:
+            raise ValueError("Either 'documents' or 'texts' field must be provided")
+        if self.documents is not None and self.texts is not None:
+            raise ValueError("Cannot provide both 'documents' and 'texts' fields")
+        return self
+    
+    def get_documents(self) -> List[str]:
+        """Get the document list regardless of which field was used."""
+        return self.documents if self.documents is not None else self.texts
 
 
 class RerankResult(BaseModel):

@@ -42,8 +42,11 @@ docker-compose up -d
 
 ## Basic Usage
 
-### Native API
+### Native API (/rerank endpoint)
 
+The `/rerank` endpoint now supports **both** native and HuggingFace formats!
+
+**Native format:**
 ```bash
 curl -X POST http://localhost:8000/rerank \
   -H "Content-Type: application/json" \
@@ -54,7 +57,18 @@ curl -X POST http://localhost:8000/rerank \
   }'
 ```
 
-### HuggingFace-Compatible API
+**HuggingFace format (same endpoint):**
+```bash
+curl -X POST http://localhost:8000/rerank \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What is deep learning?",
+    "texts": ["Deep learning is a subset of ML.", "The weather is nice."],
+    "top_k": 2
+  }'
+```
+
+### HuggingFace-Compatible API (/reranking endpoint)
 
 ```bash
 curl -X POST http://localhost:8000/reranking \
@@ -66,7 +80,10 @@ curl -X POST http://localhost:8000/reranking \
   }'
 ```
 
-**Note:** HuggingFace API uses `texts` field instead of `documents` and `score` instead of `relevance_score`.
+**Note:** 
+- `/rerank` accepts both `documents` (native) and `texts` (HuggingFace) formats
+- `/reranking` is specifically for HuggingFace format
+- Both `top_n` and `top_k` work as aliases on either endpoint
 
 ## Supported Models
 
