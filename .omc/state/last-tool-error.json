@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"python3 -m pip --version 2>&1; echo '---'; python3 -m ensurepip --version 2>&1\",\"description\":\"Check pip availability via python3 module\"}",
-  "error": "Exit code 1\n/usr/bin/python3: No module named pip\n---\n/usr/bin/python3: No module named ensurepip",
-  "timestamp": "2026-05-26T11:42:14.084Z",
-  "retry_count": 1
-}
