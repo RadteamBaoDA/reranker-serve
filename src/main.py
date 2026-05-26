@@ -365,23 +365,19 @@ def create_app() -> FastAPI:
     else:
         app.state._otel_initialized = False
 
-    @app.on_event("startup")
-    async def _install_sigterm_handler():
-        import asyncio
-        import signal
+    @app.on_event("shutdown")
+    async def _drain_engine_on_lifespan_shutdown():
+        """Run during uvicorn's graceful shutdown. Reject new requests, drain in-flight."""
         from src.engine import peek_async_engine
 
-        loop = asyncio.get_running_loop()
-
-        def _on_term():
-            engine = peek_async_engine()
-            if engine is not None:
-                engine.begin_shutdown()
-
+        engine = peek_async_engine()
+        if engine is None:
+            return
+        engine.begin_shutdown()
         try:
-            loop.add_signal_handler(signal.SIGTERM, _on_term)
-        except NotImplementedError:
-            # Windows doesn't support add_signal_handler; supervisord lives on Linux anyway.
+            await engine.stop()
+        except Exception:
+            # Shutdown best-effort — never raise out of lifespan shutdown.
             pass
 
     if settings.expose_prometheus_metrics:

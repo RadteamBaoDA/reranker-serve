@@ -332,16 +332,27 @@ class AsyncRerankerEngine:
 
                 loop = asyncio.get_running_loop()
                 if settings.enable_otel and settings.otel_batch_span:
+                    from opentelemetry import context as otel_context
                     from src.observability.otel import get_tracer
                     tracer = get_tracer()
                     with tracer.start_as_current_span("reranker.batch") as span:
                         span.set_attribute("batch_size", len(batch.requests))
                         span.set_attribute("pairs", batch.total_pairs)
                         span.set_attribute("device", self.device)
+
+                        # Capture current OTel context so child spans created
+                        # inside the executor thread parent under reranker.batch.
+                        parent_ctx = otel_context.get_current()
+
+                        def _run_in_ctx(b):
+                            token = otel_context.attach(parent_ctx)
+                            try:
+                                return self._inference_batch_sync(b)
+                            finally:
+                                otel_context.detach(token)
+
                         results = await loop.run_in_executor(
-                            self._executor,
-                            self._inference_batch_sync,
-                            batch,
+                            self._executor, _run_in_ctx, batch,
                         )
                         span.set_attribute("inference_ms", (time.time() - start_time) * 1000.0)
                 else:
