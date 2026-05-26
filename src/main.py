@@ -355,6 +355,14 @@ def create_app() -> FastAPI:
     
     logger.debug("create_app_complete")
 
+    if settings.enable_otel:
+        from src.observability.otel import init_otel, instrument_fastapi
+        init_otel(use_in_memory_exporter=False)
+        instrument_fastapi(app)
+        app.state._otel_initialized = True
+    else:
+        app.state._otel_initialized = False
+
     if settings.expose_prometheus_metrics:
         import asyncio
         import time
