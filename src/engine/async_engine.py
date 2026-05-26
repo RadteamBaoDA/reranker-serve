@@ -7,8 +7,9 @@ handlers (e.g., CrossEncoder, Qwen3).
 import asyncio
 import os
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 from src.config import settings, get_logger
 from src.engine.request_queue import (
@@ -17,9 +18,11 @@ from src.engine.request_queue import (
     RerankResult,
     BatchedRequest,
     RequestStatus,
+    percentile,
 )
 from src.engine.handlers.base import BaseHandler
 from src.engine.handlers.factory import get_handler
+from src.engine.device_probe import DeviceProfile, run_device_probe
 
 logger = get_logger(__name__)
 
@@ -75,13 +78,17 @@ class AsyncRerankerEngine:
 
         self._handler: Optional[BaseHandler] = None
         self._model_lock = asyncio.Lock()
+        self.device_profile: Optional[DeviceProfile] = None
 
         self._processor_task: Optional[asyncio.Task] = None
         self._running = False
         self._batch_semaphore = asyncio.Semaphore(self.max_concurrent_batches)
+        self._inflight_batches: set[asyncio.Task] = set()
 
         self._total_requests = 0
         self._total_inference_time = 0.0
+        self._total_pairs_processed = 0
+        self._inference_times_ms: Deque[float] = deque(maxlen=1000)
         self._start_time = time.time()
 
         logger.info(
@@ -111,6 +118,15 @@ class AsyncRerankerEngine:
 
         await self._load_model()
 
+        if settings.enable_device_probe and self._handler is not None:
+            loop = asyncio.get_running_loop()
+            self.device_profile = await loop.run_in_executor(
+                self._executor,
+                run_device_probe,
+                self._handler,
+                self.device,
+            )
+
         self._running = True
         self._processor_task = asyncio.create_task(
             self._batch_processor_loop(),
@@ -138,6 +154,9 @@ class AsyncRerankerEngine:
                     await self._processor_task
                 except asyncio.CancelledError:
                     pass
+
+        if self._inflight_batches:
+            await asyncio.gather(*self._inflight_batches, return_exceptions=True)
 
         self._executor.shutdown(wait=True)
         self._unload_model()
@@ -276,8 +295,15 @@ class AsyncRerankerEngine:
                     logger.debug("no_batch_available", iteration=loop_iteration)
                     continue
 
-                async with self._batch_semaphore:
-                    await self._process_batch(batch)
+                # Fire-and-forget so the loop returns to get_batch() and starts
+                # accumulating batch N+1 while batch N runs in the executor.
+                # Semaphore acquisition has moved into _process_batch.
+                task = asyncio.create_task(
+                    self._process_batch(batch),
+                    name=f"reranker-batch-{loop_iteration}",
+                )
+                self._inflight_batches.add(task)
+                task.add_done_callback(self._inflight_batches.discard)
 
             except asyncio.CancelledError:
                 logger.info("batch_processor_cancelled")
@@ -289,34 +315,39 @@ class AsyncRerankerEngine:
         logger.info("batch_processor_stopped")
 
     async def _process_batch(self, batch: BatchedRequest) -> None:
-        start_time = time.time()
+        # Semaphore gates concurrent GPU dispatch: with max_concurrent_batches=1
+        # and inference_threads=1, only one batch is in the executor at a time.
+        async with self._batch_semaphore:
+            start_time = time.time()
 
-        try:
-            for req in batch.requests:
-                req.status = RequestStatus.PROCESSING
+            try:
+                for req in batch.requests:
+                    req.status = RequestStatus.PROCESSING
 
-            loop = asyncio.get_running_loop()
-            results = await loop.run_in_executor(
-                self._executor,
-                self._inference_batch_sync,
-                batch,
-            )
-
-            processing_time = time.time() - start_time
-            self._total_inference_time += processing_time
-
-            for request, result_data in zip(batch.requests, results):
-                result = RerankResult(
-                    request_id=request.request_id,
-                    results=result_data,
-                    processing_time=processing_time / len(batch.requests),
+                loop = asyncio.get_running_loop()
+                results = await loop.run_in_executor(
+                    self._executor,
+                    self._inference_batch_sync,
+                    batch,
                 )
-                self.request_queue.complete_request(request.request_id, result)
 
-        except Exception as e:
-            logger.error("batch_processing_failed", error=str(e))
-            for req in batch.requests:
-                self.request_queue.fail_request(req.request_id, str(e))
+                processing_time = time.time() - start_time
+                self._total_inference_time += processing_time
+                self._inference_times_ms.append(processing_time * 1000.0)
+                self._total_pairs_processed += batch.total_pairs
+
+                for request, result_data in zip(batch.requests, results):
+                    result = RerankResult(
+                        request_id=request.request_id,
+                        results=result_data,
+                        processing_time=processing_time / len(batch.requests),
+                    )
+                    self.request_queue.complete_request(request.request_id, result)
+
+            except Exception as e:
+                logger.error("batch_processing_failed", error=str(e))
+                for req in batch.requests:
+                    self.request_queue.fail_request(req.request_id, str(e))
 
     def _inference_batch_sync(self, batch: BatchedRequest) -> List[List[Dict[str, Any]]]:
         if not self._handler:
@@ -379,6 +410,7 @@ class AsyncRerankerEngine:
 
     def get_stats(self) -> Dict[str, Any]:
         uptime = time.time() - self._start_time
+        infs = list(self._inference_times_ms)
         return {
             "running": self._running,
             "model_loaded": self.is_loaded,
@@ -393,6 +425,18 @@ class AsyncRerankerEngine:
             ),
             "requests_per_second": (
                 self._total_requests / uptime if uptime > 0 else 0
+            ),
+            "inference_latency_p50_ms": percentile(infs, 50),
+            "inference_latency_p95_ms": percentile(infs, 95),
+            "throughput_pairs_per_sec": (
+                self._total_pairs_processed / uptime if uptime > 0 else 0.0
+            ),
+            "inflight_batches": len(self._inflight_batches),
+            "semaphore_available": self._batch_semaphore._value,
+            "max_concurrent_batches": self.max_concurrent_batches,
+            "device_profile": (
+                self.device_profile.to_dict()
+                if self.device_profile is not None else None
             ),
             **self.request_queue.get_stats(),
         }
@@ -429,3 +473,8 @@ async def reset_async_engine() -> None:
             if _engine_instance is not None:
                 await _engine_instance.stop()
                 _engine_instance = None
+
+
+def peek_async_engine() -> Optional[AsyncRerankerEngine]:
+    """Return the current engine without creating one. For read-only callers."""
+    return _engine_instance

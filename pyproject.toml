@@ -65,6 +65,11 @@ dev = [
 cuda = [
     "torch>=2.0.0",
 ]
+litellm = [
+    # Required only to use src.integrations.litellm_provider.RerankerLiteLLMProvider
+    # (the Cohere-config path in docs/integrations/litellm.md needs nothing extra).
+    "litellm>=1.40.0",
+]
 
 [project.scripts]
 reranker-serve = "src.main:run_server"

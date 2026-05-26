@@ -167,6 +167,8 @@ See [Configuration Reference](docs/configuration.md) for all options.
 |----------|-------------|
 | [Configuration](docs/configuration.md) | Environment variables & settings |
 | [API Reference](docs/api-reference.md) | All API endpoints with examples |
+| [Concurrency](docs/concurrency.md) | How batching works and which knobs to tune |
+| [LiteLLM Integration](docs/integrations/litellm.md) | Wire this service into a LiteLLM proxy |
 | [Load Balancer](docs/load-balancer.md) | Multi-backend routing setup |
 | [Development](docs/development.md) | Dev setup, testing, project structure |
 | [Deployment](docs/deployment.md) | Docker, offline mode, troubleshooting |

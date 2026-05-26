@@ -75,8 +75,12 @@ class CrossEncoderHandler(BaseHandler):
                 )
             except RuntimeError as e:
                 error_msg = str(e)
-                # Handle MPS tensor size limitations
-                if self.device == "mps" and ("MPSGraph" in error_msg or "INT_MAX" in error_msg or "MPS" in error_msg):
+                mps_kernel_error = self.device == "mps" and (
+                    "MPSGraph" in error_msg
+                    or "INT_MAX" in error_msg
+                    or "MPS" in error_msg
+                )
+                if mps_kernel_error and settings.mps_fallback_to_cpu:
                     logger.warning(
                         f"MPS inference failed, falling back to CPU: {error_msg}"
                     )

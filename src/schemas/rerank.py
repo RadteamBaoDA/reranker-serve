@@ -3,8 +3,11 @@ API Request/Response schemas for reranker endpoints.
 Compatible with Jina AI and Cohere API formats.
 """
 
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
+
+
+PreferDevice = Literal["cuda", "mps", "cpu"]
 
 
 # Common schemas
@@ -23,7 +26,11 @@ class RerankRequest(BaseModel):
     texts: Optional[List[str]] = Field(default=None, description="List of texts to rerank (HuggingFace format)")
     top_n: Optional[int] = Field(default=None, description="Number of top results to return", alias="top_k")
     return_documents: bool = Field(default=True, description="Whether to return document text", alias="return_texts")
-    
+    prefer_device: Optional[PreferDevice] = Field(
+        default=None,
+        description="Optional hint: only accept this request if the engine is serving the named device."
+    )
+
     model_config = ConfigDict(
         populate_by_name=True,  # Allow both field name and alias
         json_schema_extra={

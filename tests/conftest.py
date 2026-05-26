@@ -54,6 +54,8 @@ def dummy_engine():
         def __init__(self):
             self.is_running = True
             self.is_loaded = True
+            self.device = "cpu"
+            self.device_profile = None
 
         async def rerank(self, query, documents, top_k=None, return_documents=True, request_id=None):
             limit = top_k or len(documents)

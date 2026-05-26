@@ -1,6 +1,7 @@
 """Async engine and request queue behavior using a dummy handler."""
 
 import asyncio
+import time
 from typing import Any, Dict, List
 
 import pytest
@@ -158,5 +159,71 @@ def test_async_engine_stats_increment(monkeypatch, sample_documents):
     stats = engine.get_stats()
     assert stats["total_requests"] == 0
 
-    # Do not start engine; just ensure stats keys exist
-    assert set(["running", "model_loaded", "total_requests"]).issubset(stats.keys())
+    expected_keys = {
+        "running", "model_loaded", "total_requests",
+        "inference_latency_p50_ms", "inference_latency_p95_ms",
+        "throughput_pairs_per_sec", "inflight_batches",
+        "semaphore_available", "max_concurrent_batches",
+        "batch_occupancy_pct", "queue_wait_p50_ms", "queue_wait_p95_ms",
+    }
+    assert expected_keys.issubset(stats.keys())
+
+
+@pytest.mark.asyncio
+async def test_batch_accumulation_overlaps_with_inference(monkeypatch):
+    """
+    Regression test for the concurrency fix: while batch N is in the executor,
+    batch N+1 should already be accumulating in the queue. We assert that the
+    second batch's queue-wait timestamp is older than the first batch's
+    inference-complete timestamp.
+    """
+    from src.engine.async_engine import AsyncRerankerEngine
+
+    inference_started: list[float] = []
+    inference_done: list[float] = []
+
+    class SlowHandler(DummyHandler):
+        def predict(self, batch):
+            inference_started.append(asyncio.get_event_loop().time())
+            time.sleep(0.05)  # 50 ms in the executor thread
+            result = super().predict(batch)
+            inference_done.append(asyncio.get_event_loop().time())
+            return result
+
+    slow = SlowHandler("path", "cpu", 64, False)
+    monkeypatch.setattr("src.engine.async_engine.get_handler", lambda *args, **kwargs: slow)
+    # Disable the startup probe so the timing assertions only see test traffic.
+    from src.config import settings as _settings
+    monkeypatch.setattr(_settings, "enable_device_probe", False)
+
+    engine = AsyncRerankerEngine(
+        max_concurrent_batches=1,
+        inference_threads=1,
+        max_batch_size=1,  # force one request per batch so multiple batches form
+        batch_wait_timeout=0.005,
+    )
+    await engine.start()
+
+    try:
+        # Fire 3 requests with a small stagger so they become 3 separate batches.
+        async def staggered(i):
+            await asyncio.sleep(0.001 * i)
+            return await engine.rerank("q", [f"d{i}"])
+
+        results = await asyncio.gather(*(staggered(i) for i in range(3)))
+        assert len(results) == 3
+
+        # 3 batches must have been processed.
+        assert len(inference_started) == 3
+
+        # Critical assertion: while batch N is running (between its start and
+        # done), batch N+1's start should overlap or follow immediately. We
+        # assert that the gap between successive starts is significantly less
+        # than the inference duration — i.e. accumulation is parallel.
+        gap_01 = inference_started[1] - inference_done[0]
+        gap_12 = inference_started[2] - inference_done[1]
+        # Allow up to batch_wait_timeout + scheduling jitter (~10 ms)
+        assert gap_01 < 0.02, f"batch 1 started too late after batch 0: {gap_01:.4f}s"
+        assert gap_12 < 0.02, f"batch 2 started too late after batch 1: {gap_12:.4f}s"
+    finally:
+        await engine.stop()

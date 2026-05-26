@@ -1,0 +1,401 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1779793477442,
+  "projectRoot": "/mnt/d/Project/RAG/reranker-serve",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml",
+          "requirements.txt"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "fastapi",
+        "version": null,
+        "category": "backend"
+      },
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": "pip",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "rtk pip install --quiet --user pytest pytest-asyncio httpx fastapi pydantic-settings pyyaml structlog 2>&1 | tail -5",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "src",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 9,
+      "lastAccessed": 1779793477419,
+      "keyFiles": [
+        "CONFIG_GUIDE.md",
+        "CONFIG_README.md",
+        "SUPERVISOR.md",
+        "TEST_HUGGINGFACE.md",
+        "api-reference.md"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 2,
+      "lastAccessed": 1779793477421,
+      "keyFiles": [
+        "__init__.py",
+        "main.py"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 13,
+      "lastAccessed": 1779793477423,
+      "keyFiles": [
+        "__init__.py",
+        "conftest.py",
+        "test_api.py",
+        "test_async_engine.py",
+        "test_config.py"
+      ]
+    },
+    "src/api": {
+      "path": "src/api",
+      "purpose": "API routes",
+      "fileCount": 4,
+      "lastAccessed": 1779793477432,
+      "keyFiles": [
+        "__init__.py",
+        "health.py",
+        "lb_routes.py"
+      ]
+    },
+    "src/config": {
+      "path": "src/config",
+      "purpose": "Configuration files",
+      "fileCount": 3,
+      "lastAccessed": 1779793477436,
+      "keyFiles": [
+        "__init__.py",
+        "logging.py",
+        "settings.py"
+      ]
+    },
+    "src/models": {
+      "path": "src/models",
+      "purpose": "Data models",
+      "fileCount": 3,
+      "lastAccessed": 1779793477438,
+      "keyFiles": [
+        "__init__.py",
+        "qwen3_reranker.py",
+        "reranker.py"
+      ]
+    },
+    "src/schemas": {
+      "path": "src/schemas",
+      "purpose": "Schema definitions",
+      "fileCount": 2,
+      "lastAccessed": 1779793477441,
+      "keyFiles": [
+        "__init__.py",
+        "rerank.py"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "src/engine/async_engine.py",
+      "accessCount": 17,
+      "lastAccessed": 1779795423546,
+      "type": "file"
+    },
+    {
+      "path": "src/engine/request_queue.py",
+      "accessCount": 9,
+      "lastAccessed": 1779794543734,
+      "type": "file"
+    },
+    {
+      "path": "src/config/settings.py",
+      "accessCount": 9,
+      "lastAccessed": 1779795333511,
+      "type": "file"
+    },
+    {
+      "path": "src/api/routes.py",
+      "accessCount": 8,
+      "lastAccessed": 1779795407421,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_async_engine.py",
+      "accessCount": 6,
+      "lastAccessed": 1779795311548,
+      "type": "file"
+    },
+    {
+      "path": "config.yml",
+      "accessCount": 5,
+      "lastAccessed": 1779795267623,
+      "type": "file"
+    },
+    {
+      "path": "src/schemas/rerank.py",
+      "accessCount": 5,
+      "lastAccessed": 1779795356536,
+      "type": "file"
+    },
+    {
+      "path": "src/api/health.py",
+      "accessCount": 5,
+      "lastAccessed": 1779795446711,
+      "type": "file"
+    },
+    {
+      "path": "src/models/qwen3_reranker.py",
+      "accessCount": 4,
+      "lastAccessed": 1779794615107,
+      "type": "file"
+    },
+    {
+      "path": "src/engine/handlers/cross_encoder.py",
+      "accessCount": 4,
+      "lastAccessed": 1779794627971,
+      "type": "file"
+    },
+    {
+      "path": ".env.example",
+      "accessCount": 4,
+      "lastAccessed": 1779798393812,
+      "type": "file"
+    },
+    {
+      "path": "docs/api-reference.md",
+      "accessCount": 4,
+      "lastAccessed": 1779798467116,
+      "type": "file"
+    },
+    {
+      "path": "Dockerfile",
+      "accessCount": 3,
+      "lastAccessed": 1779795114450,
+      "type": "file"
+    },
+    {
+      "path": "docker-compose.yml",
+      "accessCount": 3,
+      "lastAccessed": 1779795139973,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_api.py",
+      "accessCount": 3,
+      "lastAccessed": 1779795480547,
+      "type": "file"
+    },
+    {
+      "path": "docs/configuration.md",
+      "accessCount": 3,
+      "lastAccessed": 1779798413361,
+      "type": "file"
+    },
+    {
+      "path": "docs/integrations/litellm.md",
+      "accessCount": 3,
+      "lastAccessed": 1779798585430,
+      "type": "file"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-05-26-enterprise-single-node-design.md",
+      "accessCount": 3,
+      "lastAccessed": 1779802710013,
+      "type": "file"
+    },
+    {
+      "path": "src/models/reranker.py",
+      "accessCount": 2,
+      "lastAccessed": 1779793696458,
+      "type": "file"
+    },
+    {
+      "path": "src/engine/handlers/qwen.py",
+      "accessCount": 2,
+      "lastAccessed": 1779794582568,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_handlers.py",
+      "accessCount": 2,
+      "lastAccessed": 1779794785873,
+      "type": "file"
+    },
+    {
+      "path": "benchmark_concurrent.py",
+      "accessCount": 2,
+      "lastAccessed": 1779794797033,
+      "type": "file"
+    },
+    {
+      "path": "src/engine/handlers/base.py",
+      "accessCount": 2,
+      "lastAccessed": 1779795191810,
+      "type": "file"
+    },
+    {
+      "path": "src/engine/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1779795429868,
+      "type": "file"
+    },
+    {
+      "path": "tests/conftest.py",
+      "accessCount": 2,
+      "lastAccessed": 1779795464967,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
+      "accessCount": 2,
+      "lastAccessed": 1779795758138,
+      "type": "file"
+    },
+    {
+      "path": "docs/deployment.md",
+      "accessCount": 2,
+      "lastAccessed": 1779798430415,
+      "type": "file"
+    },
+    {
+      "path": "pyproject.toml",
+      "accessCount": 2,
+      "lastAccessed": 1779798474976,
+      "type": "file"
+    },
+    {
+      "path": "src/main.py",
+      "accessCount": 1,
+      "lastAccessed": 1779793665319,
+      "type": "file"
+    },
+    {
+      "path": "src/engine/handlers/factory.py",
+      "accessCount": 1,
+      "lastAccessed": 1779793669019,
+      "type": "file"
+    },
+    {
+      "path": "src/load_balancer/router.py",
+      "accessCount": 1,
+      "lastAccessed": 1779793674595,
+      "type": "file"
+    },
+    {
+      "path": "src/load_balancer/config.py",
+      "accessCount": 1,
+      "lastAccessed": 1779793674793,
+      "type": "file"
+    },
+    {
+      "path": "src/api/lb_routes.py",
+      "accessCount": 1,
+      "lastAccessed": 1779793684897,
+      "type": "file"
+    },
+    {
+      "path": "src/load_balancer/client.py",
+      "accessCount": 1,
+      "lastAccessed": 1779793693196,
+      "type": "file"
+    },
+    {
+      "path": "src/integrations/__init__.py",
+      "accessCount": 1,
+      "lastAccessed": 1779794652092,
+      "type": "file"
+    },
+    {
+      "path": "src/integrations/litellm_provider.py",
+      "accessCount": 1,
+      "lastAccessed": 1779794669964,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_litellm_provider.py",
+      "accessCount": 1,
+      "lastAccessed": 1779794717905,
+      "type": "file"
+    },
+    {
+      "path": "docs/concurrency.md",
+      "accessCount": 1,
+      "lastAccessed": 1779794830493,
+      "type": "file"
+    },
+    {
+      "path": "Dockerfile.cuda",
+      "accessCount": 1,
+      "lastAccessed": 1779795130070,
+      "type": "file"
+    },
+    {
+      "path": "src/engine/device_probe.py",
+      "accessCount": 1,
+      "lastAccessed": 1779795217722,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_device_probe.py",
+      "accessCount": 1,
+      "lastAccessed": 1779795292728,
+      "type": "file"
+    },
+    {
+      "path": "examples/litellm.config.yaml",
+      "accessCount": 1,
+      "lastAccessed": 1779798568678,
+      "type": "file"
+    },
+    {
+      "path": "docs/superpowers/plans/2026-05-26-enterprise-single-node-hardening.md",
+      "accessCount": 1,
+      "lastAccessed": 1779802952576,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
