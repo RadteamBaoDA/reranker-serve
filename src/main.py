@@ -354,7 +354,48 @@ def create_app() -> FastAPI:
         app.include_router(lb_router)
     
     logger.debug("create_app_complete")
-    
+
+    if settings.expose_prometheus_metrics:
+        import asyncio
+        import time
+        from prometheus_client import make_asgi_app
+        from src.observability import set_observer
+        from src.observability.prometheus import PrometheusObserver, REGISTRY, run_snapshot_loop
+
+        set_observer(PrometheusObserver())
+        app.mount("/metrics", make_asgi_app(registry=REGISTRY))
+
+        _SKIP_PATHS = ("/metrics", "/health", "/live", "/ready")
+
+        @app.middleware("http")
+        async def _request_metrics(request, call_next):
+            start = time.perf_counter()
+            response = await call_next(request)
+            path = request.url.path
+            if not any(path.startswith(p) for p in _SKIP_PATHS):
+                from src.observability import get_observer
+                get_observer().on_request_completed(
+                    route=path,
+                    status=response.status_code,
+                    total_seconds=time.perf_counter() - start,
+                    queue_wait_seconds=0.0,
+                )
+            return response
+
+        @app.on_event("startup")
+        async def _start_snapshot():
+            from src.engine import get_async_engine
+            engine = await get_async_engine()
+            app.state._prom_snapshot_task = asyncio.create_task(
+                run_snapshot_loop(engine, settings.prometheus_snapshot_interval_seconds)
+            )
+
+        @app.on_event("shutdown")
+        async def _stop_snapshot():
+            task = getattr(app.state, "_prom_snapshot_task", None)
+            if task is not None:
+                task.cancel()
+
     return app
 
 
