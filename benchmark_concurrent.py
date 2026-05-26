@@ -229,13 +229,13 @@ def main():
     parser.add_argument(
         "--requests",
         type=int,
-        default=100,
+        default=1000,
         help="Total number of requests to send",
     )
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=10,
+        default=100,
         help="Number of concurrent requests",
     )
     parser.add_argument(
