@@ -6,12 +6,21 @@ Inspired by vLLM's AsyncMicrobatchTokenizer for efficient request batching.
 import asyncio
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional
 from concurrent.futures import Future
 from enum import Enum
 
 from src.config import get_logger
+
+
+def percentile(values: List[float], p: float) -> float:
+    if not values:
+        return 0.0
+    sorted_vals = sorted(values)
+    k = max(0, min(len(sorted_vals) - 1, int(round(p / 100.0 * (len(sorted_vals) - 1)))))
+    return sorted_vals[k]
 
 logger = get_logger(__name__)
 
@@ -23,6 +32,10 @@ class RequestStatus(Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class QueueFullError(RuntimeError):
+    """Raised when the request queue is full or shutting down."""
 
 
 @dataclass
@@ -116,6 +129,8 @@ class RequestQueue:
         self._total_requests = 0
         self._total_batches = 0
         self._total_processing_time = 0.0
+        self._wait_times_ms: Deque[float] = deque(maxlen=1000)
+        self._batch_sizes: Deque[int] = deque(maxlen=1000)
         
         # Shutdown flag
         self._shutdown = False
@@ -151,7 +166,9 @@ class RequestQueue:
                 "add_request_rejected_shutdown",
                 request_id=request.request_id,
             )
-            raise RuntimeError("Queue is shutting down")
+            from src.observability import get_observer
+            get_observer().on_queue_full()
+            raise QueueFullError("Queue is shutting down")
         
         # Create result future
         loop = asyncio.get_running_loop()
@@ -189,7 +206,9 @@ class RequestQueue:
                 queue_size=self._queue.qsize(),
                 timeout=self.request_timeout,
             )
-            raise RuntimeError("Queue is full, request timed out")
+            from src.observability import get_observer
+            get_observer().on_queue_full()
+            raise QueueFullError("Queue is full, request timed out")
         
         logger.debug(
             "request_added",
@@ -305,6 +324,7 @@ class RequestQueue:
             return None
         
         self._total_batches += 1
+        self._batch_sizes.append(len(requests))
         batch = BatchedRequest(
             batch_id=f"batch-{self._total_batches}",
             requests=requests,
@@ -338,6 +358,7 @@ class RequestQueue:
         
         request = self._active_requests.pop(request_id, None)
         if request and request.result_future and not request.result_future.done():
+            self._wait_times_ms.append((time.time() - request.arrival_time) * 1000.0)
             if result.error:
                 logger.debug(
                     "complete_request_set_exception",
@@ -437,6 +458,11 @@ class RequestQueue:
     
     def get_stats(self) -> Dict[str, Any]:
         """Get queue statistics."""
+        recent_avg_batch = (
+            sum(self._batch_sizes) / len(self._batch_sizes)
+            if self._batch_sizes else 0.0
+        )
+        waits = list(self._wait_times_ms)
         stats = {
             "pending_requests": self.pending_count,
             "active_requests": self.active_count,
@@ -446,6 +472,12 @@ class RequestQueue:
                 self._total_requests / self._total_batches
                 if self._total_batches > 0 else 0
             ),
+            "batch_occupancy_pct": (
+                recent_avg_batch / self.max_batch_size * 100.0
+                if self.max_batch_size > 0 else 0.0
+            ),
+            "queue_wait_p50_ms": percentile(waits, 50),
+            "queue_wait_p95_ms": percentile(waits, 95),
         }
         logger.debug(
             "queue_stats_retrieved",

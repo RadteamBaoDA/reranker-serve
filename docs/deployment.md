@@ -2,24 +2,39 @@
 
 ## Docker
 
-### Using Docker Compose
+Two image variants ship in the repo:
+
+| Variant | Base | Architectures | Dockerfile | Compose profile |
+|---|---|---|---|---|
+| CPU | `python:3.11-slim-bookworm` | `linux/amd64`, `linux/arm64` | `Dockerfile` | default |
+| CUDA | `nvidia/cuda:12.4.1-runtime-ubuntu22.04` | `linux/amd64` only | `Dockerfile.cuda` | `cuda` |
+
+### CPU (multi-arch)
 
 ```bash
-docker-compose up -d
+# Default compose service runs the CPU image
+docker compose up -d
+
+# Local multi-arch build with buildx
+docker buildx build --platform linux/amd64,linux/arm64 -t reranker-serve:cpu .
 ```
 
-### Manual Build
+### NVIDIA CUDA
 
 ```bash
-docker build -t reranker-serve .
-docker run -p 8000:8000 reranker-serve
+# Compose (requires nvidia-container-toolkit on the host)
+docker compose --profile cuda up reranker-cuda
+
+# Or build/run by hand
+docker build -f Dockerfile.cuda -t reranker-serve:cuda .
+docker run --gpus all -p 8000:8000 reranker-serve:cuda
 ```
 
-### Docker with GPU
+The CUDA image preinstalls CUDA-12.4 torch wheels and defaults `RERANKER_DEVICE=cuda` + `RERANKER_USE_FP16=true`.
 
-```bash
-docker run --gpus all -p 8000:8000 reranker-serve
-```
+### Continuous integration
+
+`.github/workflows/docker.yml` builds both variants with `docker buildx` and pushes to GHCR on every push to `main` and on tag pushes. Tagged images are published as `ghcr.io/<owner>/reranker-serve:<tag>-cpu` and `:<tag>-cuda`.
 
 ---
 

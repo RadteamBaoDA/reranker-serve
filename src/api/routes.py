@@ -10,6 +10,7 @@ from typing import List, Union, Optional
 from fastapi import APIRouter, HTTPException, Depends, Header
 
 from src.config import settings, get_logger
+from src.engine.request_queue import QueueFullError
 from src.schemas import (
     RerankRequest,
     RerankResponse,
@@ -31,6 +32,30 @@ from src.schemas import (
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+
+async def _current_engine_device() -> str:
+    """Return the device actually serving inference (post any fallback)."""
+    if settings.enable_async_engine:
+        from src.engine import get_async_engine
+        engine = await get_async_engine()
+        return engine.device
+    return settings.get_device()
+
+
+async def _enforce_prefer_device(prefer_device: Optional[str]) -> None:
+    if prefer_device is None:
+        return
+    serving = await _current_engine_device()
+    if prefer_device != serving:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"prefer_device={prefer_device!r} but this service is "
+                f"serving on {serving!r}. Route this request to a worker "
+                f"matching the requested device."
+            ),
+        )
 
 
 async def get_rerank_results(
@@ -222,9 +247,11 @@ async def rerank(
     )
     
     try:
+        await _enforce_prefer_device(request.prefer_device)
+
         # Extract document texts to handle both string and dict formats
         document_texts = extract_document_texts(documents)
-        
+
         results = await get_rerank_results(
             query=request.query,
             documents=document_texts,
@@ -285,6 +312,21 @@ async def rerank(
         
         return response
         
+    except HTTPException:
+        raise
+    except QueueFullError as e:
+        elapsed = time.time() - endpoint_start
+        logger.warning(
+            "rerank_queue_full",
+            request_id=request_id,
+            error=str(e),
+            elapsed_ms=round(elapsed * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=settings.queue_full_status_code,
+            detail=str(e),
+            headers={"Retry-After": "1"},
+        )
     except Exception as e:
         elapsed = time.time() - endpoint_start
         logger.debug(
@@ -372,6 +414,19 @@ async def cohere_rerank(
         
         return response
         
+    except QueueFullError as e:
+        elapsed = time.time() - endpoint_start
+        logger.warning(
+            "cohere_rerank_queue_full",
+            request_id=request_id,
+            error=str(e),
+            elapsed_ms=round(elapsed * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=settings.queue_full_status_code,
+            detail=str(e),
+            headers={"Retry-After": "1"},
+        )
     except Exception as e:
         elapsed = time.time() - endpoint_start
         logger.debug(
@@ -463,6 +518,19 @@ async def jina_rerank(
         
         return response
         
+    except QueueFullError as e:
+        elapsed = time.time() - endpoint_start
+        logger.warning(
+            "jina_rerank_queue_full",
+            request_id=request_id,
+            error=str(e),
+            elapsed_ms=round(elapsed * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=settings.queue_full_status_code,
+            detail=str(e),
+            headers={"Retry-After": "1"},
+        )
     except Exception as e:
         elapsed = time.time() - endpoint_start
         logger.debug(
@@ -547,6 +615,19 @@ async def huggingface_rerank(
         
         return response
         
+    except QueueFullError as e:
+        elapsed = time.time() - endpoint_start
+        logger.warning(
+            "huggingface_rerank_queue_full",
+            request_id=request_id,
+            error=str(e),
+            elapsed_ms=round(elapsed * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=settings.queue_full_status_code,
+            detail=str(e),
+            headers={"Retry-After": "1"},
+        )
     except Exception as e:
         elapsed = time.time() - endpoint_start
         logger.debug(

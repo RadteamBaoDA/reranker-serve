@@ -1,5 +1,6 @@
-# Dockerfile for Reranker Service
-FROM python:3.11-slim
+# Dockerfile for Reranker Service (CPU build, multi-arch: linux/amd64, linux/arm64)
+# Build with: docker buildx build --platform linux/amd64,linux/arm64 -t reranker-serve:cpu .
+FROM python:3.11-slim-bookworm
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \

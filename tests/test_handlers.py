@@ -143,3 +143,82 @@ def test_handler_factory_selects_qwen():
 
     handler2 = get_handler("baai/bge", "cpu", 128, False)
     assert isinstance(handler2, CrossEncoderHandler)
+
+
+def test_qwen3_compute_logits_falls_back_from_mps_to_cpu(monkeypatch):
+    """
+    Trigger the documented MPS kernel limitation (MPSGraph error) and verify
+    that _compute_logits transparently retries on CPU when
+    settings.mps_fallback_to_cpu is enabled.
+    """
+    import torch
+
+    monkeypatch.setattr(settings, "mps_fallback_to_cpu", True)
+
+    reranker = Qwen3Reranker(model_name_or_path="fake/qwen3-reranker", device="mps")
+    reranker._token_true_id = 1
+    reranker._token_false_id = 0
+
+    call_count = {"forward": 0}
+
+    class FakeOutputs:
+        def __init__(self, batch_size: int):
+            self.logits = torch.zeros(batch_size, 4, 8)
+            self.logits[:, -1, 1] = 5.0  # "yes" token gets a high score
+            self.logits[:, -1, 0] = -5.0
+
+    class FakeModel:
+        def __init__(self, device_name: str = "mps"):
+            self._device_name = device_name
+
+        @property
+        def device(self):
+            return torch.device(self._device_name)
+
+        def __call__(self, **inputs):
+            call_count["forward"] += 1
+            if self._device_name == "mps":
+                raise RuntimeError("MPSGraph: tensor exceeds INT_MAX")
+            input_ids = inputs["input_ids"]
+            return FakeOutputs(batch_size=input_ids.shape[0])
+
+        def cpu(self):
+            return FakeModel(device_name="cpu")
+
+    fake_inputs = {
+        "input_ids": torch.zeros((2, 4), dtype=torch.long),
+        "attention_mask": torch.ones((2, 4), dtype=torch.long),
+    }
+    reranker._model = FakeModel(device_name="mps")
+
+    scores = reranker._compute_logits(fake_inputs)
+
+    assert len(scores) == 2
+    assert all(0.0 <= s <= 1.0 for s in scores)
+    assert reranker.device == "cpu"
+    assert call_count["forward"] == 2  # mps raised, cpu succeeded
+
+
+def test_qwen3_compute_logits_does_not_fall_back_when_disabled(monkeypatch):
+    """When mps_fallback_to_cpu=False, the MPS kernel error must propagate."""
+    import torch
+
+    monkeypatch.setattr(settings, "mps_fallback_to_cpu", False)
+
+    reranker = Qwen3Reranker(model_name_or_path="fake/qwen3-reranker", device="mps")
+    reranker._token_true_id = 1
+    reranker._token_false_id = 0
+
+    class FailingModel:
+        @property
+        def device(self):
+            return torch.device("mps")
+
+        def __call__(self, **inputs):
+            raise RuntimeError("MPSGraph: tensor exceeds INT_MAX")
+
+    reranker._model = FailingModel()
+    fake_inputs = {"input_ids": torch.zeros((1, 2), dtype=torch.long)}
+
+    with pytest.raises(RuntimeError, match="MPSGraph"):
+        reranker._compute_logits(fake_inputs)

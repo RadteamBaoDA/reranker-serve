@@ -25,6 +25,44 @@ class TestHealthEndpoints:
         assert data["model_name"] == settings.model_name
         assert "max_length" in data
         assert data["async_engine_enabled"] is True
+        assert "available_devices" in data
+        assert isinstance(data["available_devices"], list)
+        assert "cpu" in data["available_devices"]
+        # device_profile may be None if engine hasn't been peek'd yet
+        assert "device_profile" in data
+
+
+class TestPreferDeviceHint:
+    def test_prefer_device_matching_passes(self, test_client, sample_query, sample_documents):
+        resp = test_client.post(
+            "/rerank",
+            json={
+                "query": sample_query,
+                "documents": sample_documents[:2],
+                "prefer_device": "cpu",
+            },
+        )
+        assert resp.status_code == 200
+
+    def test_prefer_device_mismatch_returns_400(self, test_client, sample_query, sample_documents):
+        resp = test_client.post(
+            "/rerank",
+            json={
+                "query": sample_query,
+                "documents": sample_documents[:2],
+                "prefer_device": "cuda",
+            },
+        )
+        assert resp.status_code == 400
+        assert "cuda" in resp.json()["detail"]
+        assert "cpu" in resp.json()["detail"]
+
+    def test_prefer_device_absent_passes(self, test_client, sample_query, sample_documents):
+        resp = test_client.post(
+            "/rerank",
+            json={"query": sample_query, "documents": sample_documents[:2]},
+        )
+        assert resp.status_code == 200
 
 
 class TestNativeRerankEndpoint:
