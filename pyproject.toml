@@ -70,6 +70,11 @@ litellm = [
     # (the Cohere-config path in docs/integrations/litellm.md needs nothing extra).
     "litellm>=1.40.0",
 ]
+tui = [
+    # Required only by benchmark_tui.py (live dashboard).
+    # Install with: pip install '.[tui]'
+    "rich>=13.0.0",
+]
 observability = [
     # Install with: pip install '.[observability]' — required only when RERANKER_EXPOSE_PROMETHEUS_METRICS or RERANKER_ENABLE_OTEL is set
     "prometheus-client>=0.20.0",
