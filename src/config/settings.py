@@ -59,8 +59,8 @@ class Settings(BaseSettings):
         description="Enable async engine for concurrent request handling"
     )
     max_concurrent_batches: int = Field(
-        default=2,
-        description="Maximum number of batches processing concurrently"
+        default=1,
+        description="Concurrent in-flight batches. Keep at 1 for a single GPU; raise for multi-GPU or multi-thread CPU."
     )
     inference_threads: int = Field(
         default=1,
@@ -75,7 +75,7 @@ class Settings(BaseSettings):
         description="Maximum query-document pairs per batch"
     )
     batch_wait_timeout: float = Field(
-        default=0.01,
+        default=0.005,
         description="Time (seconds) to wait for batching requests together"
     )
     max_queue_size: int = Field(
@@ -86,7 +86,39 @@ class Settings(BaseSettings):
         default=60.0,
         description="Request timeout in seconds"
     )
-    
+    enable_device_probe: bool = Field(
+        default=True,
+        description="Run a small warmup benchmark at startup to record per-device latency."
+    )
+
+    # Backpressure / lifecycle
+    queue_full_status_code: int = Field(
+        default=503,
+        description="HTTP status returned when the request queue rejects (full / shutting down)."
+    )
+    graceful_shutdown_timeout: float = Field(
+        default=60.0,
+        description="Seconds to wait for in-flight requests to drain on SIGTERM."
+    )
+
+    # Observability — env-only switches (NOT read from config.yml)
+    expose_prometheus_metrics: bool = Field(
+        default=False,
+        description="Mount /metrics. Env-only via RERANKER_EXPOSE_PROMETHEUS_METRICS."
+    )
+    prometheus_snapshot_interval_seconds: float = Field(
+        default=5.0,
+        description="Period of the engine-stats → Prometheus gauges snapshot loop."
+    )
+    enable_otel: bool = Field(
+        default=False,
+        description="Initialize OTel SDK + FastAPI instrumentor. Env-only via RERANKER_ENABLE_OTEL."
+    )
+    otel_batch_span: bool = Field(
+        default=True,
+        description="Emit per-batch child span. Lets ops dial back trace volume."
+    )
+
     # Device Configuration
     device: Optional[str] = Field(
         default=None,
@@ -178,6 +210,24 @@ class Settings(BaseSettings):
     def is_mac(self) -> bool:
         """Check if running on macOS."""
         return platform.system() == "Darwin"
+
+    def get_available_devices(self) -> List[str]:
+        """Return all devices the running torch install can use, ordered by preference."""
+        devices: List[str] = []
+        try:
+            import torch
+            if torch.cuda.is_available():
+                devices.append("cuda")
+        except ImportError:
+            pass
+        try:
+            import torch
+            if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+                devices.append("mps")
+        except (ImportError, AttributeError):
+            pass
+        devices.append("cpu")
+        return devices
     
     def get_torch_dtype(self):
         """Get the appropriate torch dtype based on device and settings."""
@@ -272,7 +322,18 @@ def load_yaml_config(yaml_path: Optional[str] = None) -> Dict[str, Any]:
             flat_config['batch_wait_timeout'] = ae_cfg.get('batch_wait_timeout')
             flat_config['max_queue_size'] = ae_cfg.get('max_queue_size')
             flat_config['request_timeout'] = ae_cfg.get('request_timeout')
-        
+            flat_config['enable_device_probe'] = ae_cfg.get('enable_device_probe')
+
+        # Observability switches are intentionally NOT read from config.yml.
+        # Spec: docs/superpowers/specs/2026-05-26-enterprise-single-node-design.md
+        for forbidden in (
+            "expose_prometheus_metrics",
+            "prometheus_snapshot_interval_seconds",
+            "enable_otel",
+            "otel_batch_span",
+        ):
+            flat_config.pop(forbidden, None)
+
         if 'http' in yaml_config:
             flat_config['trust_env'] = yaml_config['http'].get('trust_env')
         

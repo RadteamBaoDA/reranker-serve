@@ -100,8 +100,9 @@ async_engine:
   # Enable async engine for concurrent request handling (recommended)
   enabled: true
   
-  # Maximum concurrent batches being processed simultaneously
-  max_concurrent_batches: 2
+  # Maximum concurrent batches being processed simultaneously.
+  # Keep at 1 for single GPU; raise for multi-GPU or multi-thread CPU.
+  max_concurrent_batches: 1
   
   # Number of threads for model inference in thread pool
   inference_threads: 1
@@ -114,13 +115,17 @@ async_engine:
   
   # Wait timeout for batch accumulation (seconds)
   # Lower = less latency, higher = better batching
-  batch_wait_timeout: 0.01
+  batch_wait_timeout: 0.005
   
   # Maximum queue size for pending requests
   max_queue_size: 1000
   
   # Request timeout (seconds) - max time to wait for a request to complete
   request_timeout: 60.0
+
+  # Run a small warmup probe at startup to measure per-device latency.
+  # Disable on tiny CPUs where startup time matters more than observability.
+  enable_device_probe: true
 
 # =============================================================================
 # HTTP Client / Proxy Configuration

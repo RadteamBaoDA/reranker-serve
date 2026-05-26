@@ -354,7 +354,72 @@ def create_app() -> FastAPI:
         app.include_router(lb_router)
     
     logger.debug("create_app_complete")
-    
+
+    if settings.enable_otel:
+        from src.observability.otel import init_otel, instrument_fastapi
+        init_otel(use_in_memory_exporter=False)
+        if not getattr(app.state, "_otel_instrumented", False):
+            instrument_fastapi(app)
+            app.state._otel_instrumented = True
+        app.state._otel_initialized = True
+    else:
+        app.state._otel_initialized = False
+
+    @app.on_event("shutdown")
+    async def _drain_engine_on_lifespan_shutdown():
+        """Run during uvicorn's graceful shutdown. Reject new requests, drain in-flight."""
+        from src.engine import peek_async_engine
+
+        engine = peek_async_engine()
+        if engine is None:
+            return
+        engine.begin_shutdown()
+        try:
+            await engine.stop()
+        except Exception:
+            # Shutdown best-effort — never raise out of lifespan shutdown.
+            pass
+
+    if settings.expose_prometheus_metrics:
+        import asyncio
+        import time
+        from prometheus_client import make_asgi_app
+        from src.observability import set_observer
+        from src.observability.prometheus import PrometheusObserver, REGISTRY, run_snapshot_loop
+
+        set_observer(PrometheusObserver())
+        app.mount("/metrics", make_asgi_app(registry=REGISTRY))
+
+        _SKIP_PATHS = ("/metrics", "/health", "/live", "/ready")
+
+        @app.middleware("http")
+        async def _request_metrics(request, call_next):
+            start = time.perf_counter()
+            response = await call_next(request)
+            path = request.url.path
+            if not any(path.startswith(p) for p in _SKIP_PATHS):
+                from src.observability import get_observer
+                get_observer().on_request_completed(
+                    route=path,
+                    status=response.status_code,
+                    total_seconds=time.perf_counter() - start,
+                )
+            return response
+
+        @app.on_event("startup")
+        async def _start_snapshot():
+            from src.engine import get_async_engine
+            engine = await get_async_engine()
+            app.state._prom_snapshot_task = asyncio.create_task(
+                run_snapshot_loop(engine, settings.prometheus_snapshot_interval_seconds)
+            )
+
+        @app.on_event("shutdown")
+        async def _stop_snapshot():
+            task = getattr(app.state, "_prom_snapshot_task", None)
+            if task is not None:
+                task.cancel()
+
     return app
 
 

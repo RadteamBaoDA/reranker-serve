@@ -25,6 +25,8 @@ class ModelInfoResponse(BaseModel):
     model_name: str
     model_path: str | None
     device: str
+    available_devices: list[str]
+    device_profile: Optional[Dict[str, Any]] = None
     max_length: int
     batch_size: int
     use_fp16: bool
@@ -89,10 +91,22 @@ async def model_info() -> ModelInfoResponse:
         async_engine_enabled=settings.enable_async_engine,
     )
     
+    device_profile = None
+    serving_device = settings.get_device()
+    if settings.enable_async_engine:
+        from src.engine import peek_async_engine
+        engine = peek_async_engine()
+        if engine is not None:
+            serving_device = engine.device
+            if engine.device_profile is not None:
+                device_profile = engine.device_profile.to_dict()
+
     return ModelInfoResponse(
         model_name=settings.model_name,
         model_path=settings.model_path,
-        device=settings.get_device(),
+        device=serving_device,
+        available_devices=settings.get_available_devices(),
+        device_profile=device_profile,
         max_length=settings.max_length,
         batch_size=settings.batch_size,
         use_fp16=settings.use_fp16,

@@ -1,0 +1,32 @@
+# LiteLLM proxy config that points at this reranker-serve instance.
+# Drop into your LiteLLM proxy host and run:
+#     litellm --config examples/litellm.config.yaml --port 4000
+#
+# See docs/integrations/litellm.md for the explanation of both paths.
+
+model_list:
+  # Path A (recommended): Cohere-compatible. Zero code; LiteLLM speaks Cohere
+  # rerank format to our /v1/rerank endpoint directly.
+  - model_name: reranker
+    litellm_params:
+      model: cohere/rerank-english-v3.0
+      api_base: http://localhost:8000
+      api_key: "dummy"   # set to the value of RERANKER_API_KEY if the server requires auth
+
+  # Path B (advanced): custom provider that hits our native /rerank endpoint.
+  # Uncomment AND ensure src.integrations.litellm_provider is importable
+  # from the LiteLLM proxy's PYTHONPATH (e.g. pip install -e . of this repo).
+  #
+  # - model_name: local-reranker
+  #   litellm_params:
+  #     model: reranker_custom/local
+  #     api_base: http://localhost:8000
+  #     api_key: "optional-bearer-token"
+
+litellm_settings:
+  drop_params: true   # silently drops fields our schema does not accept
+
+# Required only if you uncomment the Path B model above:
+# custom_provider_map:
+#   - provider: reranker_custom
+#     custom_handler: src.integrations.litellm_provider.reranker_provider

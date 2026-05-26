@@ -143,3 +143,4 @@ Thumbs.db
 # Project specific
 *.log
 logs/
+.omc

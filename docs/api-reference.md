@@ -12,6 +12,9 @@ The Reranker Service provides multiple API endpoints compatible with different p
 | `POST /v1/rerank` | Cohere-compatible | Cohere API |
 | `POST /api/v1/rerank` | Jina-compatible | Jina AI API |
 | `GET /health` | Health check | - |
+| `GET /info` | Model + device profile + available devices | - |
+| `GET /stats` | Live engine metrics (queue, batch occupancy, latency p50/p95) | - |
+| `GET /ready`, `GET /live` | Kubernetes probes | - |
 | `GET /docs` | API documentation | OpenAPI/Swagger |
 
 ---
@@ -99,6 +102,7 @@ This ensures clients get the expected format and prevents errors like "'str' obj
 | `top_k` | integer | No | Number of top results (alias: `top_n`) |
 | `return_documents` | boolean | No | Include text in response (alias: `return_texts`) |
 | `return_texts` | boolean | No | Include text in response (alias: `return_documents`) |
+| `prefer_device` | `"cuda"`, `"mps"`, `"cpu"` | No | Reject the request with HTTP 400 unless this matches the device the server is serving on. Useful for client-side device routing across multiple workers. |
 
 **Important:** 
 - You must provide either `documents` OR `texts`, not both or neither
@@ -268,6 +272,88 @@ GET /health
   "device": "cuda"
 }
 ```
+
+---
+
+## Model Info
+
+```http
+GET /info
+```
+
+Returns the loaded model, the device actually serving inference (after any
+MPS→CPU fallback), every device the running torch install can reach, and the
+startup probe results.
+
+### Response
+
+```json
+{
+  "model_name": "BAAI/bge-reranker-v2-m3",
+  "device": "cuda",
+  "available_devices": ["cuda", "cpu"],
+  "device_profile": {
+    "device": "cuda",
+    "probes": [
+      {"batch_size": 1,  "pairs": 4,   "elapsed_ms": 12.5, "ms_per_pair": 3.13},
+      {"batch_size": 8,  "pairs": 32,  "elapsed_ms": 41.0, "ms_per_pair": 1.28},
+      {"batch_size": 32, "pairs": 128, "elapsed_ms": 132.4, "ms_per_pair": 1.03}
+    ],
+    "suggested_batch_size": 32,
+    "user_pinned_batch_size": false
+  },
+  "max_length": 512,
+  "batch_size": 32,
+  "use_fp16": true,
+  "async_engine_enabled": true,
+  "max_concurrent_batches": 1,
+  "inference_threads": 1,
+  "max_queue_size": 1000
+}
+```
+
+`device_profile` is `null` until the engine has started. Set
+`RERANKER_ENABLE_DEVICE_PROBE=false` to skip the warmup.
+
+---
+
+## Engine Stats
+
+```http
+GET /stats
+```
+
+Live concurrency + latency snapshot. Use this to decide whether to widen the
+batch window, raise `max_batch_size`, or add a worker.
+
+### Response
+
+```json
+{
+  "engine_mode": "async",
+  "running": true,
+  "model_loaded": true,
+  "stats": {
+    "total_requests": 1284,
+    "total_batches": 312,
+    "avg_batch_size": 4.1,
+    "batch_occupancy_pct": 12.8,
+    "queue_wait_p50_ms": 3.2,
+    "queue_wait_p95_ms": 18.7,
+    "inference_latency_p50_ms": 41.0,
+    "inference_latency_p95_ms": 102.3,
+    "throughput_pairs_per_sec": 614.2,
+    "inflight_batches": 0,
+    "semaphore_available": 1,
+    "max_concurrent_batches": 1,
+    "device_profile": { "...": "(same shape as /info)" },
+    "pending_requests": 0,
+    "active_requests": 0
+  }
+}
+```
+
+See [Concurrency](concurrency.md) for what each number means and which knob to turn.
 
 ---
 

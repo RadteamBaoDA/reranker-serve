@@ -190,11 +190,27 @@ async def run_benchmark(
             if stats_response.status_code == 200:
                 engine_stats = stats_response.json()
                 print("\n📈 Engine Statistics:")
-                engine_data = engine_stats.get("stats", {})
-                print(f"   Total Requests Processed: {engine_data.get('total_requests', 'N/A')}")
-                print(f"   Pending Requests: {engine_data.get('pending_requests', 'N/A')}")
-                print(f"   Total Batches: {engine_data.get('total_batches', 'N/A')}")
-                print(f"   Avg Batch Size: {engine_data.get('avg_batch_size', 'N/A'):.2f}" if isinstance(engine_data.get('avg_batch_size'), (int, float)) else f"   Avg Batch Size: N/A")
+                engine_data = engine_stats.get("stats", engine_stats)
+
+                def _show(label: str, key: str, fmt: str = "{:.2f}"):
+                    val = engine_data.get(key)
+                    if isinstance(val, (int, float)):
+                        print(f"   {label}: {fmt.format(val)}")
+                    elif val is not None:
+                        print(f"   {label}: {val}")
+
+                _show("Total Requests Processed", "total_requests", "{}")
+                _show("Pending Requests", "pending_requests", "{}")
+                _show("Total Batches", "total_batches", "{}")
+                _show("Avg Batch Size", "avg_batch_size")
+                _show("Batch Occupancy %", "batch_occupancy_pct")
+                _show("Queue Wait p50 (ms)", "queue_wait_p50_ms")
+                _show("Queue Wait p95 (ms)", "queue_wait_p95_ms")
+                _show("Inference Latency p50 (ms)", "inference_latency_p50_ms")
+                _show("Inference Latency p95 (ms)", "inference_latency_p95_ms")
+                _show("Throughput (pairs/sec)", "throughput_pairs_per_sec")
+                _show("In-flight Batches", "inflight_batches", "{}")
+                _show("Semaphore Available", "semaphore_available", "{}")
     except Exception:
         pass
     

@@ -35,13 +35,16 @@ Configuration is done through environment variables with the `RERANKER_` prefix.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `RERANKER_ENABLE_ASYNC_ENGINE` | Enable async engine for concurrent requests | `true` |
-| `RERANKER_MAX_CONCURRENT_BATCHES` | Max batches processing simultaneously | `2` |
-| `RERANKER_INFERENCE_THREADS` | Thread pool size for inference | `1` |
+| `RERANKER_MAX_CONCURRENT_BATCHES` | Concurrent in-flight batches. Keep at `1` on single GPU | `1` |
+| `RERANKER_INFERENCE_THREADS` | Thread pool size for inference (`1` is correct for GPU) | `1` |
 | `RERANKER_MAX_BATCH_SIZE` | Max requests per batch | `32` |
 | `RERANKER_MAX_BATCH_PAIRS` | Max query-doc pairs per batch | `1024` |
-| `RERANKER_BATCH_WAIT_TIMEOUT` | Wait time (seconds) to batch requests | `0.01` |
+| `RERANKER_BATCH_WAIT_TIMEOUT` | Wait time (seconds) to batch requests | `0.005` |
 | `RERANKER_MAX_QUEUE_SIZE` | Max pending requests in queue | `1000` |
 | `RERANKER_REQUEST_TIMEOUT` | Request timeout in seconds | `60.0` |
+| `RERANKER_ENABLE_DEVICE_PROBE` | Run startup warmup probe; result on `/info` and `/stats` | `true` |
+
+See [Concurrency](concurrency.md) for what each knob actually does and how to read the new `/stats` percentile fields.
 
 ### Load Balancer Configuration
 
@@ -61,9 +64,9 @@ RERANKER_LOG_LEVEL=INFO
 RERANKER_MODEL_NAME=BAAI/bge-reranker-v2-m3
 RERANKER_DEVICE=cuda
 
-# High-performance async settings
+# High-throughput async settings (single GPU)
 RERANKER_ENABLE_ASYNC_ENGINE=true
-RERANKER_MAX_CONCURRENT_BATCHES=4
+RERANKER_MAX_CONCURRENT_BATCHES=1
 RERANKER_MAX_BATCH_PAIRS=2048
 RERANKER_BATCH_WAIT_TIMEOUT=0.005
 ```
