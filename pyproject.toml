@@ -71,6 +71,7 @@ litellm = [
     "litellm>=1.40.0",
 ]
 observability = [
+    # Install with: pip install '.[observability]' — required only when RERANKER_EXPOSE_PROMETHEUS_METRICS or RERANKER_ENABLE_OTEL is set
     "prometheus-client>=0.20.0",
     "opentelemetry-api>=1.25.0",
     "opentelemetry-sdk>=1.25.0",
