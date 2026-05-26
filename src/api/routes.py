@@ -10,6 +10,7 @@ from typing import List, Union, Optional
 from fastapi import APIRouter, HTTPException, Depends, Header
 
 from src.config import settings, get_logger
+from src.engine.request_queue import QueueFullError
 from src.schemas import (
     RerankRequest,
     RerankResponse,
@@ -313,6 +314,19 @@ async def rerank(
         
     except HTTPException:
         raise
+    except QueueFullError as e:
+        elapsed = time.time() - endpoint_start
+        logger.warning(
+            "rerank_queue_full",
+            request_id=request_id,
+            error=str(e),
+            elapsed_ms=round(elapsed * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=settings.queue_full_status_code,
+            detail=str(e),
+            headers={"Retry-After": "1"},
+        )
     except Exception as e:
         elapsed = time.time() - endpoint_start
         logger.debug(
@@ -400,6 +414,19 @@ async def cohere_rerank(
         
         return response
         
+    except QueueFullError as e:
+        elapsed = time.time() - endpoint_start
+        logger.warning(
+            "cohere_rerank_queue_full",
+            request_id=request_id,
+            error=str(e),
+            elapsed_ms=round(elapsed * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=settings.queue_full_status_code,
+            detail=str(e),
+            headers={"Retry-After": "1"},
+        )
     except Exception as e:
         elapsed = time.time() - endpoint_start
         logger.debug(
@@ -491,6 +518,19 @@ async def jina_rerank(
         
         return response
         
+    except QueueFullError as e:
+        elapsed = time.time() - endpoint_start
+        logger.warning(
+            "jina_rerank_queue_full",
+            request_id=request_id,
+            error=str(e),
+            elapsed_ms=round(elapsed * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=settings.queue_full_status_code,
+            detail=str(e),
+            headers={"Retry-After": "1"},
+        )
     except Exception as e:
         elapsed = time.time() - endpoint_start
         logger.debug(
@@ -575,6 +615,19 @@ async def huggingface_rerank(
         
         return response
         
+    except QueueFullError as e:
+        elapsed = time.time() - endpoint_start
+        logger.warning(
+            "huggingface_rerank_queue_full",
+            request_id=request_id,
+            error=str(e),
+            elapsed_ms=round(elapsed * 1000, 2),
+        )
+        raise HTTPException(
+            status_code=settings.queue_full_status_code,
+            detail=str(e),
+            headers={"Retry-After": "1"},
+        )
     except Exception as e:
         elapsed = time.time() - endpoint_start
         logger.debug(

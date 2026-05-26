@@ -34,6 +34,10 @@ class RequestStatus(Enum):
     CANCELLED = "cancelled"
 
 
+class QueueFullError(RuntimeError):
+    """Raised when the request queue is full or shutting down."""
+
+
 @dataclass
 class RerankRequest:
     """
@@ -162,7 +166,7 @@ class RequestQueue:
                 "add_request_rejected_shutdown",
                 request_id=request.request_id,
             )
-            raise RuntimeError("Queue is shutting down")
+            raise QueueFullError("Queue is shutting down")
         
         # Create result future
         loop = asyncio.get_running_loop()
@@ -200,7 +204,7 @@ class RequestQueue:
                 queue_size=self._queue.qsize(),
                 timeout=self.request_timeout,
             )
-            raise RuntimeError("Queue is full, request timed out")
+            raise QueueFullError("Queue is full, request timed out")
         
         logger.debug(
             "request_added",
