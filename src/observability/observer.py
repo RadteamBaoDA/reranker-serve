@@ -12,7 +12,8 @@ from typing import Protocol, runtime_checkable
 @runtime_checkable
 class Observer(Protocol):
     def on_request_completed(
-        self, *, route: str, status: int, total_seconds: float, queue_wait_seconds: float
+        self, *, route: str, status: int, total_seconds: float,
+        queue_wait_seconds: float | None = None,
     ) -> None: ...
 
     def on_batch_completed(

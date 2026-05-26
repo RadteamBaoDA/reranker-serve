@@ -358,7 +358,9 @@ def create_app() -> FastAPI:
     if settings.enable_otel:
         from src.observability.otel import init_otel, instrument_fastapi
         init_otel(use_in_memory_exporter=False)
-        instrument_fastapi(app)
+        if not getattr(app.state, "_otel_instrumented", False):
+            instrument_fastapi(app)
+            app.state._otel_instrumented = True
         app.state._otel_initialized = True
     else:
         app.state._otel_initialized = False
@@ -405,7 +407,6 @@ def create_app() -> FastAPI:
                     route=path,
                     status=response.status_code,
                     total_seconds=time.perf_counter() - start,
-                    queue_wait_seconds=0.0,
                 )
             return response
 

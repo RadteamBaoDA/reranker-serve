@@ -90,10 +90,11 @@ class PrometheusObserver(Observer):
     def __init__(self, registry: CollectorRegistry = REGISTRY):
         self._registry = registry
 
-    def on_request_completed(self, *, route, status, total_seconds, queue_wait_seconds):
+    def on_request_completed(self, *, route, status, total_seconds, queue_wait_seconds=None):
         _REQUESTS.labels(route=route, status=str(status)).inc()
         _REQUEST_DURATION.labels(route=route).observe(total_seconds)
-        _QUEUE_WAIT.observe(queue_wait_seconds)
+        if queue_wait_seconds is not None:
+            _QUEUE_WAIT.observe(queue_wait_seconds)
 
     def on_batch_completed(self, *, batch_size, pairs, inference_seconds, device):
         _BATCH_SIZE.observe(batch_size)

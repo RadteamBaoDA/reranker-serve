@@ -420,7 +420,9 @@ class AsyncRerankerEngine:
         result_future = await self.request_queue.add_request(request)
 
         try:
-            result: RerankResult = await result_future
+            result: RerankResult = await asyncio.wait_for(
+                result_future, timeout=settings.request_timeout
+            )
             total_time = time.time() - rerank_start_time
             logger.debug(
                 "rerank_request_complete",
@@ -430,6 +432,12 @@ class AsyncRerankerEngine:
                 num_results=len(result.results),
             )
             return result.results
+        except asyncio.TimeoutError:
+            from src.observability import get_observer
+            from src.engine.request_queue import QueueFullError
+            await self.request_queue.cancel_request(request.request_id)
+            get_observer().on_request_timeout()
+            raise QueueFullError("Request timeout exceeded") from None
         except asyncio.CancelledError:
             await self.request_queue.cancel_request(request.request_id)
             raise
