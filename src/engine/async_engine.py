@@ -336,6 +336,14 @@ class AsyncRerankerEngine:
                 self._inference_times_ms.append(processing_time * 1000.0)
                 self._total_pairs_processed += batch.total_pairs
 
+                from src.observability import get_observer
+                get_observer().on_batch_completed(
+                    batch_size=len(batch.requests),
+                    pairs=batch.total_pairs,
+                    inference_seconds=processing_time,
+                    device=self.device,
+                )
+
                 for request, result_data in zip(batch.requests, results):
                     result = RerankResult(
                         request_id=request.request_id,
@@ -345,6 +353,8 @@ class AsyncRerankerEngine:
                     self.request_queue.complete_request(request.request_id, result)
 
             except Exception as e:
+                from src.observability import get_observer
+                get_observer().on_batch_processing_failed()
                 logger.error("batch_processing_failed", error=str(e))
                 for req in batch.requests:
                     self.request_queue.fail_request(req.request_id, str(e))

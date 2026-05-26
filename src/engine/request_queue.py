@@ -166,6 +166,8 @@ class RequestQueue:
                 "add_request_rejected_shutdown",
                 request_id=request.request_id,
             )
+            from src.observability import get_observer
+            get_observer().on_queue_full()
             raise QueueFullError("Queue is shutting down")
         
         # Create result future
@@ -204,6 +206,8 @@ class RequestQueue:
                 queue_size=self._queue.qsize(),
                 timeout=self.request_timeout,
             )
+            from src.observability import get_observer
+            get_observer().on_queue_full()
             raise QueueFullError("Queue is full, request timed out")
         
         logger.debug(

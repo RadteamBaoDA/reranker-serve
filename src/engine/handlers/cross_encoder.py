@@ -84,6 +84,8 @@ class CrossEncoderHandler(BaseHandler):
                     logger.warning(
                         f"MPS inference failed, falling back to CPU: {error_msg}"
                     )
+                    from src.observability import get_observer
+                    get_observer().on_mps_fallback()
                     # Reload model on CPU
                     self.device = "cpu"
                     self.model = None

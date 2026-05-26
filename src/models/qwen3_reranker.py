@@ -304,6 +304,8 @@ class Qwen3Reranker:
                     error=error_msg,
                     device=self.device,
                 )
+                from src.observability import get_observer
+                get_observer().on_mps_fallback()
                 cpu_inputs = {k: v.cpu() for k, v in inputs.items()}
                 self._model = self._model.cpu()
                 self.device = "cpu"
