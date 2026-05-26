@@ -84,6 +84,7 @@ class AsyncRerankerEngine:
         self._running = False
         self._batch_semaphore = asyncio.Semaphore(self.max_concurrent_batches)
         self._inflight_batches: set[asyncio.Task] = set()
+        self._shutting_down = False
 
         self._total_requests = 0
         self._total_inference_time = 0.0
@@ -161,6 +162,11 @@ class AsyncRerankerEngine:
         self._executor.shutdown(wait=True)
         self._unload_model()
         logger.info("async_engine_stopped")
+
+    def begin_shutdown(self) -> None:
+        """Signal that no new requests should be accepted; in-flight work continues."""
+        self._shutting_down = True
+        self.request_queue._shutdown = True
 
     async def _load_model(self) -> None:
         """Load the model (thread-safe)."""
@@ -392,6 +398,10 @@ class AsyncRerankerEngine:
 
         if not self._running:
             raise RuntimeError("Engine is not running")
+
+        if self._shutting_down:
+            from src.engine.request_queue import QueueFullError
+            raise QueueFullError("Server is shutting down")
 
         if not documents:
             return []

@@ -363,6 +363,25 @@ def create_app() -> FastAPI:
     else:
         app.state._otel_initialized = False
 
+    @app.on_event("startup")
+    async def _install_sigterm_handler():
+        import asyncio
+        import signal
+        from src.engine import peek_async_engine
+
+        loop = asyncio.get_running_loop()
+
+        def _on_term():
+            engine = peek_async_engine()
+            if engine is not None:
+                engine.begin_shutdown()
+
+        try:
+            loop.add_signal_handler(signal.SIGTERM, _on_term)
+        except NotImplementedError:
+            # Windows doesn't support add_signal_handler; supervisord lives on Linux anyway.
+            pass
+
     if settings.expose_prometheus_metrics:
         import asyncio
         import time
