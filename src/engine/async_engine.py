@@ -325,11 +325,25 @@ class AsyncRerankerEngine:
                     req.status = RequestStatus.PROCESSING
 
                 loop = asyncio.get_running_loop()
-                results = await loop.run_in_executor(
-                    self._executor,
-                    self._inference_batch_sync,
-                    batch,
-                )
+                if settings.enable_otel and settings.otel_batch_span:
+                    from src.observability.otel import get_tracer
+                    tracer = get_tracer()
+                    with tracer.start_as_current_span("reranker.batch") as span:
+                        span.set_attribute("batch_size", len(batch.requests))
+                        span.set_attribute("pairs", batch.total_pairs)
+                        span.set_attribute("device", self.device)
+                        results = await loop.run_in_executor(
+                            self._executor,
+                            self._inference_batch_sync,
+                            batch,
+                        )
+                        span.set_attribute("inference_ms", (time.time() - start_time) * 1000.0)
+                else:
+                    results = await loop.run_in_executor(
+                        self._executor,
+                        self._inference_batch_sync,
+                        batch,
+                    )
 
                 processing_time = time.time() - start_time
                 self._total_inference_time += processing_time
