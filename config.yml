@@ -26,18 +26,18 @@ model:
   #   - Qwen/Qwen3-Reranker-0.6B (Qwen3-based, multilingual)
   #   - Qwen/Qwen3-Reranker-4B (Qwen3-based, larger)
   #   - Qwen/Qwen3-Reranker-8B (Qwen3-based, best quality)
-  name: Qwen/Qwen3-Reranker-0.6B
+  name: Qwen/Qwen3-Reranker-8B
   
   # Local path to load model from disk (optional)
   # If set, will load from this path instead of downloading
   # path: /path/to/local/model
-  path: ./models/Qwen3-Reranker-0.6B
+  path: ./models/Qwen3-Reranker-8B
   
   # Directory to cache downloaded models
   cache_dir: ./models
   
   # Enable offline mode (no internet access, requires local model)
-  use_offline_mode: true
+  use_offline_mode: false
 
 # =============================================================================
 # Inference Configuration
@@ -59,8 +59,10 @@ device:
   # Device to use: cuda, mps, cpu, or leave empty for auto-detect
   name: null  # null means auto-detect
   
-  # Force CPU-only mode (disables CUDA/MPS completely)
-  force_cpu_only: true
+  # Force CPU-only mode (disables CUDA/MPS completely).
+  # Default false so auto-detect can pick CUDA/MPS. Set true (or
+  # RERANKER_FORCE_CPU_ONLY=true) only when you specifically need CPU.
+  force_cpu_only: false
   
   # Use FP16 precision (faster on CUDA, may cause issues on MPS)
   use_fp16: true
