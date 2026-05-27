@@ -171,6 +171,7 @@ See [Configuration Reference](docs/configuration.md) for all options.
 | [LiteLLM Integration](docs/integrations/litellm.md) | Wire this service into a LiteLLM proxy |
 | [Operations](docs/operations.md) | Production runbook: supervisord, alerts, nginx, tuning |
 | [Admin UI](docs/admin-ui.md) | Local password-gated dashboard: GPU quota, queue, config, logs |
+| [Benchmark (4B)](docs/benchmark-qwen3-4b.md) | Measured throughput/latency of Qwen3-Reranker-4B on an RTX 4070 Ti SUPER + tuning levers |
 | [Load Balancer](docs/load-balancer.md) | Multi-backend routing setup |
 | [Development](docs/development.md) | Dev setup, testing, project structure |
 | [Deployment](docs/deployment.md) | Docker, offline mode, troubleshooting |
