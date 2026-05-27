@@ -322,6 +322,43 @@ class Qwen3Reranker:
                 return scores
             raise
     
+    def score_pairs(
+        self,
+        pairs: List[tuple],
+        instruction: Optional[str] = None,
+    ) -> List[float]:
+        """Score a flat list of (query, document) pairs.
+
+        Returns one relevance score per pair, in the SAME order as the input.
+        Pairs are length-bucketed (sorted by formatted-prompt length) before
+        padding so a short pair is never padded up to a long pair's length.
+        """
+        if self._model is None:
+            self.load()
+        if not pairs:
+            return []
+
+        formatted = [
+            self._format_instruction(query, doc, instruction)
+            for (query, doc) in pairs
+        ]
+
+        # Length bucketing: sort indices by formatted length (cheap char-length
+        # proxy for token count), batch similar lengths, scatter back to input order.
+        order = sorted(range(len(formatted)), key=lambda i: len(formatted[i]))
+        scores: List[float] = [0.0] * len(formatted)
+
+        batch_size = settings.batch_size
+        for start in range(0, len(order), batch_size):
+            idx_chunk = order[start:start + batch_size]
+            prompt_chunk = [formatted[i] for i in idx_chunk]
+            inputs = self._process_inputs(prompt_chunk)
+            chunk_scores = self._compute_logits(inputs)
+            for local_i, global_i in enumerate(idx_chunk):
+                scores[global_i] = float(chunk_scores[local_i])
+
+        return scores
+
     def rerank(
         self,
         query: str,
@@ -357,21 +394,11 @@ class Qwen3Reranker:
             instruction=instruction[:50] if instruction else None,
         )
         
-        # Format all query-document pairs
-        pairs = [
-            self._format_instruction(query, doc, instruction)
-            for doc in documents
-        ]
-        
-        # Process in batches if needed
-        batch_size = settings.batch_size
-        all_scores = []
-        
-        for i in range(0, len(pairs), batch_size):
-            batch_pairs = pairs[i:i + batch_size]
-            inputs = self._process_inputs(batch_pairs)
-            batch_scores = self._compute_logits(inputs)
-            all_scores.extend(batch_scores)
+        # Delegate to the shared primitive (handles bucketing + batching).
+        all_scores = self.score_pairs(
+            [(query, doc) for doc in documents],
+            instruction=instruction,
+        )
         
         # Create results with original indices
         results = []
