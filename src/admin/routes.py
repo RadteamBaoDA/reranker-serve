@@ -56,3 +56,33 @@ async def logout():
 @router.get("/api/config")
 async def api_config(_: bool = Depends(require_admin)) -> JSONResponse:
     return JSONResponse({"config": config_io.get_config_snapshot()})
+
+
+async def _get_engine():
+    from src.engine import get_async_engine
+    return await get_async_engine()
+
+
+@router.get("/api/resources")
+async def api_resources(_: bool = Depends(require_admin)) -> JSONResponse:
+    engine = await _get_engine()
+    stats = engine.get_stats()
+    return JSONResponse({
+        "device_resources": stats.get("device_resources", {}),
+        "throughput": {
+            "requests_per_second": stats.get("requests_per_second"),
+            "pairs_per_second": stats.get("throughput_pairs_per_sec"),
+        },
+        "latency": {
+            "p50_ms": stats.get("inference_latency_p50_ms"),
+            "p95_ms": stats.get("inference_latency_p95_ms"),
+        },
+        "batch_occupancy_pct": stats.get("batch_occupancy_pct"),
+        "pending_requests": stats.get("pending_requests"),
+    })
+
+
+@router.get("/api/queue")
+async def api_queue(_: bool = Depends(require_admin)) -> JSONResponse:
+    engine = await _get_engine()
+    return JSONResponse(engine.get_queue_snapshot())
