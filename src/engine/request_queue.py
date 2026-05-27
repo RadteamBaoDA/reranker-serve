@@ -6,7 +6,7 @@ Inspired by vLLM's AsyncMicrobatchTokenizer for efficient request batching.
 import asyncio
 import time
 import uuid
-from collections import deque
+from collections import deque, OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, List, Optional
 from concurrent.futures import Future
@@ -124,7 +124,10 @@ class RequestQueue:
         
         # Track active requests
         self._active_requests: Dict[str, RerankRequest] = {}
-        
+
+        # Ordered registry of requests currently waiting in the queue (not yet batched).
+        self._waiting: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+
         # Metrics
         self._total_requests = 0
         self._total_batches = 0
@@ -216,7 +219,14 @@ class RequestQueue:
             documents=len(request.documents),
             queue_size=self._queue.qsize(),
         )
-        
+
+        self._waiting[request.request_id] = {
+            "request_id": request.request_id,
+            "num_docs": len(request.documents),
+            "enqueued_at": time.time(),
+            "priority": request.priority,
+        }
+
         return request.result_future
     
     async def get_batch(self) -> Optional[BatchedRequest]:
@@ -252,6 +262,7 @@ class RequestQueue:
                 timeout=wait_timeout
             )
             requests.append(first_request)
+            self._waiting.pop(first_request.request_id, None)
             total_pairs += len(first_request.documents)
             logger.debug(
                 "get_batch_first_request",
@@ -303,6 +314,7 @@ class RequestQueue:
                     break
                 
                 requests.append(request)
+                self._waiting.pop(request.request_id, None)
                 total_pairs += len(request.documents)
                 logger.debug(
                     "get_batch_request_added",
@@ -357,6 +369,7 @@ class RequestQueue:
         )
         
         request = self._active_requests.pop(request_id, None)
+        self._waiting.pop(request_id, None)
         if request and request.result_future and not request.result_future.done():
             self._wait_times_ms.append((time.time() - request.arrival_time) * 1000.0)
             if result.error:
@@ -416,6 +429,7 @@ class RequestQueue:
             if request.result_future and not request.result_future.done():
                 request.result_future.cancel()
             del self._active_requests[request_id]
+            self._waiting.pop(request_id, None)
             logger.debug(
                 "cancel_request_success",
                 request_id=request_id,
@@ -456,6 +470,14 @@ class RequestQueue:
         """Number of active (queued + processing) requests."""
         return len(self._active_requests)
     
+    def get_waiting_snapshot(self) -> List[Dict[str, Any]]:
+        """Requests currently waiting in the queue, oldest first, with wait time."""
+        now = time.time()
+        return [
+            {**entry, "waited_ms": round((now - entry["enqueued_at"]) * 1000.0, 1)}
+            for entry in self._waiting.values()
+        ]
+
     def get_stats(self) -> Dict[str, Any]:
         """Get queue statistics."""
         recent_avg_batch = (

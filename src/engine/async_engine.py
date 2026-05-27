@@ -102,6 +102,7 @@ class AsyncRerankerEngine:
         self._running = False
         self._batch_semaphore = asyncio.Semaphore(self.max_concurrent_batches)
         self._inflight_batches: set[asyncio.Task] = set()
+        self._inflight_meta: Dict[str, Dict[str, Any]] = {}
         self._shutting_down = False
 
         self._total_requests = 0
@@ -355,74 +356,84 @@ class AsyncRerankerEngine:
         logger.info("batch_processor_stopped")
 
     async def _process_batch(self, batch: BatchedRequest) -> None:
-        # Semaphore gates concurrent GPU dispatch: with max_concurrent_batches=1
-        # and inference_threads=1, only one batch is in the executor at a time.
-        async with self._batch_semaphore:
-            start_time = time.time()
+        self._inflight_meta[batch.batch_id] = {
+            "batch_id": batch.batch_id,
+            "request_ids": [r.request_id for r in batch.requests],
+            "num_requests": len(batch.requests),
+            "pairs": batch.total_pairs,
+            "started_at": time.time(),
+        }
+        try:
+            # Semaphore gates concurrent GPU dispatch: with max_concurrent_batches=1
+            # and inference_threads=1, only one batch is in the executor at a time.
+            async with self._batch_semaphore:
+                start_time = time.time()
 
-            try:
-                for req in batch.requests:
-                    req.status = RequestStatus.PROCESSING
+                try:
+                    for req in batch.requests:
+                        req.status = RequestStatus.PROCESSING
 
-                loop = asyncio.get_running_loop()
-                if settings.enable_otel and settings.otel_batch_span:
-                    from opentelemetry import context as otel_context
-                    from src.observability.otel import get_tracer
-                    tracer = get_tracer()
-                    with tracer.start_as_current_span("reranker.batch") as span:
-                        span.set_attribute("batch_size", len(batch.requests))
-                        span.set_attribute("pairs", batch.total_pairs)
-                        span.set_attribute("device", self.device)
+                    loop = asyncio.get_running_loop()
+                    if settings.enable_otel and settings.otel_batch_span:
+                        from opentelemetry import context as otel_context
+                        from src.observability.otel import get_tracer
+                        tracer = get_tracer()
+                        with tracer.start_as_current_span("reranker.batch") as span:
+                            span.set_attribute("batch_size", len(batch.requests))
+                            span.set_attribute("pairs", batch.total_pairs)
+                            span.set_attribute("device", self.device)
 
-                        # Capture current OTel context so child spans created
-                        # inside the executor thread parent under reranker.batch.
-                        parent_ctx = otel_context.get_current()
+                            # Capture current OTel context so child spans created
+                            # inside the executor thread parent under reranker.batch.
+                            parent_ctx = otel_context.get_current()
 
-                        def _run_in_ctx(b):
-                            token = otel_context.attach(parent_ctx)
-                            try:
-                                return self._inference_batch_sync(b)
-                            finally:
-                                otel_context.detach(token)
+                            def _run_in_ctx(b):
+                                token = otel_context.attach(parent_ctx)
+                                try:
+                                    return self._inference_batch_sync(b)
+                                finally:
+                                    otel_context.detach(token)
 
+                            results = await loop.run_in_executor(
+                                self._executor, _run_in_ctx, batch,
+                            )
+                            span.set_attribute("inference_ms", (time.time() - start_time) * 1000.0)
+                    else:
                         results = await loop.run_in_executor(
-                            self._executor, _run_in_ctx, batch,
+                            self._executor,
+                            self._inference_batch_sync,
+                            batch,
                         )
-                        span.set_attribute("inference_ms", (time.time() - start_time) * 1000.0)
-                else:
-                    results = await loop.run_in_executor(
-                        self._executor,
-                        self._inference_batch_sync,
-                        batch,
+
+                    processing_time = time.time() - start_time
+                    self._total_inference_time += processing_time
+                    self._inference_times_ms.append(processing_time * 1000.0)
+                    self._total_pairs_processed += batch.total_pairs
+
+                    from src.observability import get_observer
+                    get_observer().on_batch_completed(
+                        batch_size=len(batch.requests),
+                        pairs=batch.total_pairs,
+                        inference_seconds=processing_time,
+                        device=self.device,
                     )
 
-                processing_time = time.time() - start_time
-                self._total_inference_time += processing_time
-                self._inference_times_ms.append(processing_time * 1000.0)
-                self._total_pairs_processed += batch.total_pairs
+                    for request, result_data in zip(batch.requests, results):
+                        result = RerankResult(
+                            request_id=request.request_id,
+                            results=result_data,
+                            processing_time=processing_time / len(batch.requests),
+                        )
+                        self.request_queue.complete_request(request.request_id, result)
 
-                from src.observability import get_observer
-                get_observer().on_batch_completed(
-                    batch_size=len(batch.requests),
-                    pairs=batch.total_pairs,
-                    inference_seconds=processing_time,
-                    device=self.device,
-                )
-
-                for request, result_data in zip(batch.requests, results):
-                    result = RerankResult(
-                        request_id=request.request_id,
-                        results=result_data,
-                        processing_time=processing_time / len(batch.requests),
-                    )
-                    self.request_queue.complete_request(request.request_id, result)
-
-            except Exception as e:
-                from src.observability import get_observer
-                get_observer().on_batch_processing_failed()
-                logger.error("batch_processing_failed", error=str(e))
-                for req in batch.requests:
-                    self.request_queue.fail_request(req.request_id, str(e))
+                except Exception as e:
+                    from src.observability import get_observer
+                    get_observer().on_batch_processing_failed()
+                    logger.error("batch_processing_failed", error=str(e))
+                    for req in batch.requests:
+                        self.request_queue.fail_request(req.request_id, str(e))
+        finally:
+            self._inflight_meta.pop(batch.batch_id, None)
 
     def _inference_batch_sync(self, batch: BatchedRequest) -> List[List[Dict[str, Any]]]:
         if not self._handler:
@@ -494,6 +505,15 @@ class AsyncRerankerEngine:
     @property
     def is_loaded(self) -> bool:
         return self._handler is not None
+
+    def get_queue_snapshot(self) -> Dict[str, Any]:
+        """Live view of batches running and requests waiting, for the admin dashboard."""
+        now = time.time()
+        running = [
+            {**meta, "elapsed_ms": round((now - meta["started_at"]) * 1000.0, 1)}
+            for meta in self._inflight_meta.values()
+        ]
+        return {"waiting": self.request_queue.get_waiting_snapshot(), "running": running}
 
     def get_stats(self) -> Dict[str, Any]:
         uptime = time.time() - self._start_time
