@@ -24,8 +24,9 @@ structlog>=24.1.0
 # CPU memory probe for VRAM-aware batch sizing
 psutil>=5.9.0
 
-# Admin UI templates
+# Admin UI templates + login form parsing
 jinja2>=3.1.0
+python-multipart>=0.0.9
 
 # Development dependencies (optional)
 # pytest>=7.4.0

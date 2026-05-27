@@ -85,6 +85,7 @@ gpu-metrics = [
 ]
 admin = [
     "jinja2>=3.1.0",
+    "python-multipart>=0.0.9",
 ]
 observability = [
     # Install with: pip install '.[observability]' — required only when RERANKER_EXPOSE_PROMETHEUS_METRICS or RERANKER_ENABLE_OTEL is set
