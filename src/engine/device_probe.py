@@ -14,7 +14,7 @@ import os
 import time
 import uuid
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.config import get_logger
 from src.engine.handlers.base import BaseHandler
@@ -92,6 +92,23 @@ def _pick_suggested_batch_size(probes: List[ProbeResult]) -> int:
     for probe in probes[1:]:
         if probe.ms_per_pair <= baseline * 2.0:
             chosen = probe.batch_size
+        else:
+            break
+    return chosen
+
+
+def suggest_max_batch_pairs(
+    candidates: List[int],
+    free_fraction_after: Callable[[int], float],
+    safety_margin: float,
+) -> int:
+    """Largest candidate batch (in pairs) that still leaves >= safety_margin
+    of device memory free. If none qualifies, return the smallest candidate."""
+    ordered = sorted(candidates)
+    chosen = ordered[0]
+    for pairs in ordered:
+        if free_fraction_after(pairs) >= safety_margin:
+            chosen = pairs
         else:
             break
     return chosen
