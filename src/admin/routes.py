@@ -127,3 +127,21 @@ async def api_restart(_: bool = Depends(require_admin)) -> JSONResponse:
     engine.begin_shutdown()
     _schedule_exit()
     return JSONResponse({"restarting": True})
+
+
+@router.get("/api/logs/tail")
+async def api_logs_tail(_: bool = Depends(require_admin), lines: int = 200, q: str = "") -> JSONResponse:
+    import glob
+    import os
+    lines = max(1, min(lines, 5000))
+    log_files = sorted(glob.glob(os.path.join(settings.log_dir, "*.log")))
+    collected: list[str] = []
+    for path in log_files:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                collected.extend(f.read().splitlines())
+        except OSError:
+            continue
+    if q:
+        collected = [ln for ln in collected if q in ln]
+    return JSONResponse({"lines": collected[-lines:]})
