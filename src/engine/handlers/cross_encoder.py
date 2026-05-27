@@ -61,67 +61,65 @@ class CrossEncoderHandler(BaseHandler):
                     tokenizer.padding_side = 'right'
 
     def predict(self, batch: BatchedRequest) -> List[List[Dict[str, Any]]]:
-        all_results = []
-        
+        if not batch.requests:
+            return []
+
+        # Flatten all pairs across requests, tracking per-request spans.
+        flat_pairs: List[list] = []
+        spans: List[tuple] = []
         for request in batch.requests:
-            pairs = [[request.query, doc] for doc in request.documents]
-            
-            # Run inference with MPS fallback
-            try:
+            start = len(flat_pairs)
+            flat_pairs.extend([request.query, doc] for doc in request.documents)
+            spans.append((start, len(flat_pairs)))
+
+        if not flat_pairs:
+            return [[] for _ in batch.requests]
+
+        # ONE batched inference call for the whole BatchedRequest, with the
+        # existing MPS->CPU recovery path preserved.
+        try:
+            scores = self.model.predict(
+                flat_pairs,
+                batch_size=settings.batch_size,
+                show_progress_bar=False,
+            )
+        except RuntimeError as e:
+            error_msg = str(e)
+            mps_kernel_error = self.device == "mps" and (
+                "MPSGraph" in error_msg or "INT_MAX" in error_msg or "MPS" in error_msg
+            )
+            if mps_kernel_error and settings.mps_fallback_to_cpu:
+                logger.warning(f"MPS inference failed, falling back to CPU: {error_msg}")
+                from src.observability import get_observer
+                get_observer().on_mps_fallback()
+                self.device = "cpu"
+                self.model = None
+                self.load_model()
                 scores = self.model.predict(
-                    pairs,
-                    batch_size=settings.batch_size,
-                    show_progress_bar=False,
+                    flat_pairs, batch_size=settings.batch_size, show_progress_bar=False
                 )
-            except RuntimeError as e:
-                error_msg = str(e)
-                mps_kernel_error = self.device == "mps" and (
-                    "MPSGraph" in error_msg
-                    or "INT_MAX" in error_msg
-                    or "MPS" in error_msg
-                )
-                if mps_kernel_error and settings.mps_fallback_to_cpu:
-                    logger.warning(
-                        f"MPS inference failed, falling back to CPU: {error_msg}"
-                    )
-                    from src.observability import get_observer
-                    get_observer().on_mps_fallback()
-                    # Reload model on CPU
-                    self.device = "cpu"
-                    self.model = None
-                    self.load_model()
-                    scores = self.model.predict(
-                        pairs,
-                        batch_size=settings.batch_size,
-                        show_progress_bar=False,
-                    )
-                    logger.info("Successfully completed inference on CPU after MPS fallback")
-                else:
-                    raise
-            
-            # Normalize if configured
-            if settings.normalize_scores:
-                scores_array = np.array(scores)
-                scores = (1 / (1 + np.exp(-scores_array))).tolist()
-            
-            # Build results
-            results = []
-            for idx, score in enumerate(scores):
-                result = {
-                    "index": idx,
-                    "relevance_score": float(score),
-                }
+                logger.info("Successfully completed inference on CPU after MPS fallback")
+            else:
+                raise
+
+        if settings.normalize_scores:
+            scores_array = np.array(scores)
+            scores = (1 / (1 + np.exp(-scores_array))).tolist()
+        else:
+            scores = list(scores)
+
+        all_results: List[List[Dict[str, Any]]] = []
+        for request, (start, end) in zip(batch.requests, spans):
+            request_scores = scores[start:end]
+            results: List[Dict[str, Any]] = []
+            for idx, score in enumerate(request_scores):
+                result = {"index": idx, "relevance_score": float(score)}
                 if request.return_documents:
                     result["document"] = {"text": request.documents[idx]}
                 results.append(result)
-            
-            # Sort by score
             results.sort(key=lambda x: x["relevance_score"], reverse=True)
-            
-            # Apply top_k
             if request.top_k is not None and request.top_k > 0:
                 results = results[:request.top_k]
-                
             all_results.append(results)
-            
+
         return all_results
