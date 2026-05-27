@@ -4,6 +4,7 @@ Compatible with Jina AI and Cohere API formats.
 Optimized for async concurrent request handling.
 """
 
+import hmac
 import uuid
 from typing import List, Union, Optional
 
@@ -144,7 +145,7 @@ def verify_api_key(authorization: str = Header(default=None)) -> bool:
     if authorization.startswith("Bearer "):
         token = authorization[7:]
     
-    if token != settings.api_key:
+    if not hmac.compare_digest(token, settings.api_key):
         logger.debug("verify_api_key_invalid")
         raise HTTPException(status_code=401, detail="Invalid API key")
     
