@@ -47,3 +47,23 @@ def test_snapshot_loop_copies_engine_stats():
     assert "reranker_pending_requests 3.0" in text
     assert "reranker_inflight_batches 1.0" in text
     assert "reranker_semaphore_available 0.0" in text
+
+
+def test_snapshot_loop_copies_device_resources():
+    from src.observability.prometheus import _snapshot_into_gauges, REGISTRY
+
+    stats = {
+        "device_resources": {
+            "device": "cuda", "backend": "cuda",
+            "mem_used_mb": 4096.0, "mem_total_mb": 16384.0,
+            "mem_free_mb": 12288.0, "used_pct": 25.0, "util_pct": 80.0,
+        }
+    }
+    _snapshot_into_gauges(stats)
+    from prometheus_client import generate_latest
+    text = generate_latest(REGISTRY).decode()
+    assert "reranker_device_memory_used_bytes 4.294967296e+09" in text
+    assert "reranker_device_memory_total_bytes" in text and any(
+        v in text for v in ("reranker_device_memory_total_bytes 1.7179869184e+10", "reranker_device_memory_total_bytes 1.7179869184e+010")
+    )
+    assert "reranker_device_utilization_ratio 0.8" in text

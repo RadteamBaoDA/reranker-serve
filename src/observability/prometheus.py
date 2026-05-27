@@ -64,6 +64,21 @@ _SEMAPHORE = Gauge(
     "Free slots in the engine's batch semaphore.",
     registry=REGISTRY,
 )
+_DEVICE_MEM_USED = Gauge(
+    "reranker_device_memory_used_bytes",
+    "Active device memory in use, in bytes.",
+    registry=REGISTRY,
+)
+_DEVICE_MEM_TOTAL = Gauge(
+    "reranker_device_memory_total_bytes",
+    "Active device total memory, in bytes.",
+    registry=REGISTRY,
+)
+_DEVICE_UTIL = Gauge(
+    "reranker_device_utilization_ratio",
+    "Active device compute utilization ratio (0-1), when available.",
+    registry=REGISTRY,
+)
 _QUEUE_FULL = Counter(
     "reranker_queue_full_total",
     "Number of times the queue rejected a request.",
@@ -126,6 +141,17 @@ def _snapshot_into_gauges(stats: Dict[str, Any]) -> None:
     sema = stats.get("semaphore_available")
     if sema is not None:
         _SEMAPHORE.set(sema)
+    res = stats.get("device_resources")
+    if res:
+        used_mb = res.get("mem_used_mb")
+        total_mb = res.get("mem_total_mb")
+        util_pct = res.get("util_pct")
+        if used_mb is not None:
+            _DEVICE_MEM_USED.set(used_mb * 1024 * 1024)
+        if total_mb is not None:
+            _DEVICE_MEM_TOTAL.set(total_mb * 1024 * 1024)
+        if util_pct is not None:
+            _DEVICE_UTIL.set(util_pct / 100.0)
 
 
 async def run_snapshot_loop(engine, interval_seconds: float) -> None:
