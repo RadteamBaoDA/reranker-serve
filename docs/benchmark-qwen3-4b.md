@@ -30,10 +30,21 @@ Sub-second p95 with 4B is only reached at **very low concurrency or tiny candida
 
 ## Levers to actually hit 50-concurrent / sub-second (in rough order of impact)
 
-1. **Smaller model — `Qwen3-Reranker-0.6B`** (~6–7× fewer params → ~6× throughput). Projected ~700 pairs/s → 50×20 ≈ 1.4 s p95, and 50×5 ≈ 0.4 s p95 (**meets target for smaller candidate sets**). This is the single biggest lever if the quality of 0.6B is acceptable.
+1. **Smaller model — `Qwen3-Reranker-0.6B`** — **measured** (same GPU, same engine): ~480 pairs/s, **50×20 → p95 2.08 s**, **50×5 → p95 1.91 s**, single 20-doc 237 ms, 100% success. That is **~4.4× faster than 4B** but **still over the 800 ms target at 50 concurrent**. The single biggest lever if 0.6B's quality is acceptable — combine with lever 3 and/or 4 to get under 800 ms.
 2. **flash-attn-2 + FP8** for the 4B (`pip install flash-attn`, `pip install '.[quant]'` + `RERANKER_QUANTIZATION=fp8`): ~2–4× combined → ~2.5–4 s p95 at 50×20. Helps materially but **does not alone reach 800 ms** at medium doc counts.
 3. **Fewer documents per request** (rerank top-10 not top-20–50) and/or **lower concurrency** — move into the sub-second region of the envelope above.
 4. **Scale horizontally** — add GPUs and fan out via the built-in load balancer (`load_balancer.enabled`), which round-robins/least-busy across backends.
+
+## 4B vs 0.6B (same GPU, same engine, p95 latency / success)
+
+| Workload | Qwen3-Reranker-4B | Qwen3-Reranker-0.6B |
+|---|---|---|
+| single, 20 docs | 530 ms | 237 ms |
+| 50 conc × 5 docs | 4.65 s · 100% | **1.91 s** · 100% |
+| 50 conc × 20 docs | 9.04 s · 100% | **2.08 s** · 100% |
+| peak throughput | ~110 pairs/s | ~480 pairs/s |
+
+0.6B is ~4.4× faster but **still ~2 s p95 at 50 concurrent** — neither model hits < 800 ms there on a single 4070 Ti SUPER. Note the small-candidate case (50×5) is barely faster than 50×20 and average batch size measured ~2: at 50 concurrent the latency is partly **batch-scheduling overhead**, so tuning `batch_wait_timeout` / `max_concurrent_batches` (now adjustable live in the admin UI) is a real additional lever on top of model size.
 
 ## Reproduce
 
