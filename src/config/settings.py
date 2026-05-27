@@ -167,7 +167,19 @@ class Settings(BaseSettings):
         default="*",
         description="Comma-separated list of allowed CORS origins"
     )
-    
+    enable_docs: bool = Field(
+        default=True,
+        description="Expose /docs, /redoc, /openapi.json. Set false in production."
+    )
+    admin_password: Optional[str] = Field(
+        default=None,
+        description="Password gating the admin UI (env-only secret; never written to config.yml). Unset disables /admin."
+    )
+    admin_session_ttl_hours: int = Field(
+        default=12,
+        description="Admin session cookie lifetime in hours."
+    )
+
     # Load Balancer Configuration
     enable_load_balancer: bool = Field(
         default=False,
@@ -327,6 +339,8 @@ def load_yaml_config(yaml_path: Optional[str] = None) -> Dict[str, Any]:
             flat_config['api_key'] = api_cfg.get('key')
             flat_config['enable_cors'] = api_cfg.get('enable_cors')
             flat_config['cors_origins'] = api_cfg.get('cors_origins')
+            flat_config['enable_docs'] = api_cfg.get('enable_docs')
+            flat_config['admin_session_ttl_hours'] = api_cfg.get('admin_session_ttl_hours')
         
         if 'load_balancer' in yaml_config:
             lb_cfg = yaml_config['load_balancer']
