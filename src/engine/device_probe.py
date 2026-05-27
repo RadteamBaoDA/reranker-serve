@@ -50,6 +50,7 @@ class DeviceProfile:
     probes: List[ProbeResult]
     suggested_batch_size: int
     user_pinned_batch_size: bool
+    suggested_max_batch_pairs: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -65,6 +66,7 @@ class DeviceProfile:
             ],
             "suggested_batch_size": self.suggested_batch_size,
             "user_pinned_batch_size": self.user_pinned_batch_size,
+            "suggested_max_batch_pairs": self.suggested_max_batch_pairs,
         }
 
 
@@ -95,6 +97,25 @@ def _pick_suggested_batch_size(probes: List[ProbeResult]) -> int:
         else:
             break
     return chosen
+
+
+def _device_free_fraction(device: str) -> float:
+    """Fraction of the active device's memory currently free (0.0-1.0)."""
+    try:
+        if device == "cuda":
+            import torch
+            free, total = torch.cuda.mem_get_info()
+            return free / total if total else 0.0
+        if device == "mps":
+            import torch
+            total = torch.mps.recommended_max_memory()
+            used = torch.mps.current_allocated_memory()
+            return (total - used) / total if total else 0.0
+        import psutil
+        vm = psutil.virtual_memory()
+        return vm.available / vm.total if vm.total else 0.0
+    except Exception:
+        return 1.0  # unknown -> do not constrain batch size
 
 
 def suggest_max_batch_pairs(
@@ -159,11 +180,42 @@ def run_device_probe(
     if not probes:
         return None
 
+    from src.config import settings as _settings
+
+    pair_candidates = [64, 128, 256, 512, 1024]
+
+    def _free_after(pairs: int) -> float:
+        n_requests = max(1, pairs // PROBE_DOCS_PER_REQUEST)
+        probe_batch = BatchedRequest(
+            batch_id=f"mem-probe-{pairs}",
+            requests=[
+                RerankRequest(
+                    request_id=f"mem-{uuid.uuid4().hex[:6]}",
+                    query=PROBE_QUERY,
+                    documents=[PROBE_DOC] * PROBE_DOCS_PER_REQUEST,
+                    return_documents=False,
+                )
+                for _ in range(n_requests)
+            ],
+        )
+        try:
+            handler.predict(probe_batch)
+        except Exception:
+            return 0.0  # did not fit / errored -> treat as over budget
+        return _device_free_fraction(device)
+
+    suggested_pairs = suggest_max_batch_pairs(
+        candidates=pair_candidates,
+        free_fraction_after=_free_after,
+        safety_margin=_settings.device_mem_safety_margin,
+    )
+
     profile = DeviceProfile(
         device=device,
         probes=probes,
         suggested_batch_size=_pick_suggested_batch_size(probes),
         user_pinned_batch_size=user_pinned,
+        suggested_max_batch_pairs=suggested_pairs,
     )
     logger.info(
         "device_probe_complete",

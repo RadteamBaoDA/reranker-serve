@@ -144,6 +144,14 @@ class AsyncRerankerEngine:
                 self._handler,
                 self.device,
             )
+            if (
+                self.device_profile is not None
+                and self.device_profile.suggested_max_batch_pairs is not None
+                and "RERANKER_MAX_BATCH_PAIRS" not in os.environ
+            ):
+                suggested = self.device_profile.suggested_max_batch_pairs
+                self.request_queue.max_batch_pairs = suggested
+                logger.info("max_batch_pairs_autotuned", value=suggested)
 
         self._running = True
         self._processor_task = asyncio.create_task(

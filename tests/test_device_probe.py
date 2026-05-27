@@ -63,7 +63,8 @@ def test_run_device_probe_returns_profile_for_each_batch_size():
     assert profile is not None
     assert isinstance(profile, DeviceProfile)
     assert [p.batch_size for p in profile.probes] == list(PROBE_BATCH_SIZES)
-    assert handler.calls == len(PROBE_BATCH_SIZES)
+    # handler.calls includes both batch-size probes and memory-probe calls
+    assert handler.calls >= len(PROBE_BATCH_SIZES)
     assert profile.device == "cpu"
     assert profile.suggested_batch_size in PROBE_BATCH_SIZES
 
@@ -100,3 +101,16 @@ def test_device_profile_to_dict_roundtrip():
     assert payload["device"] == "cpu"
     assert payload["suggested_batch_size"] == 1
     assert payload["probes"][0]["ms_per_pair"] == pytest.approx(1.25)
+
+
+def test_device_profile_carries_suggested_max_batch_pairs():
+    from src.engine.device_probe import DeviceProfile, ProbeResult
+
+    profile = DeviceProfile(
+        device="cpu",
+        probes=[ProbeResult(batch_size=1, pairs=4, elapsed_ms=10.0)],
+        suggested_batch_size=1,
+        user_pinned_batch_size=False,
+        suggested_max_batch_pairs=256,
+    )
+    assert profile.to_dict()["suggested_max_batch_pairs"] == 256
