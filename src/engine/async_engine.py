@@ -36,6 +36,15 @@ def resolve_cpu_threads(device: str, configured: Optional[int], cpu_count: int) 
     return cpu_count
 
 
+def _safe_resource_stats(device: str) -> Dict[str, Any]:
+    """Resource stats for /stats; never let telemetry break get_stats()."""
+    try:
+        from src.observability.resources import get_resource_stats
+        return get_resource_stats(device)
+    except Exception:
+        return {"device": device, "error": "unavailable"}
+
+
 class AsyncRerankerEngine:
     """High-performance async reranker engine with batching."""
 
@@ -516,6 +525,7 @@ class AsyncRerankerEngine:
                 self.device_profile.to_dict()
                 if self.device_profile is not None else None
             ),
+            "device_resources": _safe_resource_stats(self.device),
             **self.request_queue.get_stats(),
         }
 
