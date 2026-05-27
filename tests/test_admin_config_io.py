@@ -47,3 +47,30 @@ def test_write_rejects_unknown_key(tmp_path):
     result = config_io.write_config_updates({"not_a_setting": 1}, path=str(cfg))
     assert result["written"] is False
     assert "not_a_setting" in result["rejected"]
+
+
+def test_write_coerces_string_to_int(tmp_path):
+    cfg = tmp_path / "config.yml"
+    cfg.write_text("model:\n  name: x\n")
+    result = config_io.write_config_updates({"max_length": "256"}, path=str(cfg))
+    assert result["written"] is True
+    import yaml
+    assert yaml.safe_load(cfg.read_text())["inference"]["max_length"] == 256
+    assert isinstance(yaml.safe_load(cfg.read_text())["inference"]["max_length"], int)
+
+
+def test_write_coerces_string_to_bool(tmp_path):
+    cfg = tmp_path / "config.yml"
+    cfg.write_text("model:\n  name: x\n")
+    result = config_io.write_config_updates({"enable_docs": "false"}, path=str(cfg))
+    assert result["written"] is True
+    import yaml
+    assert yaml.safe_load(cfg.read_text())["api"]["enable_docs"] is False
+
+
+def test_write_rejects_uncoercible_value(tmp_path):
+    cfg = tmp_path / "config.yml"
+    cfg.write_text("model:\n  name: x\n")
+    result = config_io.write_config_updates({"max_length": "notanint"}, path=str(cfg))
+    assert result["written"] is False
+    assert "max_length" in result["rejected"]

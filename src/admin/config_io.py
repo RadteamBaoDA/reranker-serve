@@ -39,6 +39,27 @@ _SECRETS = {"api_key", "admin_password"}
 _BY_ATTR = {attr: (section, key, restart) for (attr, section, key, restart) in _FIELD_MAP}
 
 
+def _coerce(attr: str, value: Any) -> Any:
+    """Coerce an incoming value to the type of the current setting. Raises ValueError if impossible."""
+    current = getattr(settings, attr, None)
+    if isinstance(current, bool):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            v = value.strip().lower()
+            if v in ("1", "true", "yes", "on"):
+                return True
+            if v in ("0", "false", "no", "off"):
+                return False
+            raise ValueError(f"{attr}: not a boolean")
+        return bool(value)
+    if isinstance(current, int) and not isinstance(current, bool):
+        return int(value)
+    if isinstance(current, float):
+        return float(value)
+    return value
+
+
 def _source(attr: str, yaml_cfg: Dict[str, Any]) -> str:
     if f"RERANKER_{attr.upper()}" in os.environ:
         return "env"
@@ -85,8 +106,18 @@ def write_config_updates(updates: Dict[str, Any], path: Optional[str] = None) ->
         return {"written": False, "rejected": rejected, "needs_restart": False}
 
     data = _load_yaml(p)
-    needs_restart = False
+    coerced: Dict[str, Any] = {}
+    bad: List[str] = []
     for attr, value in updates.items():
+        try:
+            coerced[attr] = _coerce(attr, value)
+        except (ValueError, TypeError):
+            bad.append(attr)
+    if bad:
+        return {"written": False, "rejected": bad, "needs_restart": False}
+
+    needs_restart = False
+    for attr, value in coerced.items():
         section, key, restart = _BY_ATTR[attr]
         data.setdefault(section, {})
         data[section][key] = value
