@@ -270,6 +270,12 @@ async def lifespan(app: FastAPI):
     )
 
 
+def cors_allow_credentials(origins: list[str]) -> bool:
+    """Browsers reject Access-Control-Allow-Origin '*' with credentials; never
+    combine them. Credentials are only allowed with explicit origins."""
+    return "*" not in origins
+
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     from src.api import router, health_router
@@ -328,10 +334,11 @@ def create_app() -> FastAPI:
             "cors_enabled",
             origins=settings.get_cors_origins_list(),
         )
+        origins = settings.get_cors_origins_list()
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=settings.get_cors_origins_list(),
-            allow_credentials=True,
+            allow_origins=origins,
+            allow_credentials=cors_allow_credentials(origins),
             allow_methods=["*"],
             allow_headers=["*"],
         )
