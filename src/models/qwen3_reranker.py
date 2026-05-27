@@ -17,6 +17,30 @@ from src.config import settings, get_logger
 logger = get_logger(__name__)
 
 
+def build_quantization_config(device: str, quantization: str):
+    """Return a transformers quantization_config for from_pretrained, or None.
+
+    FP8 is CUDA-only (Ada+). int8 is applied post-load (see maybe_quantize_int8),
+    so it returns None here. Any unsupported combination returns None.
+    """
+    q = (quantization or "none").lower()
+    if q == "fp8" and device == "cuda":
+        # Requires `torchao` and a recent transformers. e4m3 dynamic FP8.
+        from transformers import TorchAoConfig
+        return TorchAoConfig("float8_dynamic_activation_float8_weight")
+    return None
+
+
+def maybe_quantize_int8(model, device: str, quantization: str):
+    """Apply CPU dynamic int8 quantization to Linear layers, else return model as-is."""
+    if (quantization or "none").lower() == "int8" and device == "cpu":
+        import torch
+        return torch.ao.quantization.quantize_dynamic(
+            model, {torch.nn.Linear}, dtype=torch.qint8
+        )
+    return model
+
+
 def build_load_kwargs(device: str, use_fp16: bool, has_flash_attn: bool) -> dict:
     """Choose model-load kwargs (dtype + attention) for the active device.
 
@@ -161,7 +185,12 @@ class Qwen3Reranker:
                 use_fp16=self.use_fp16,
                 has_flash_attn=has_flash_attn,
             )
-            
+
+            quant_config = build_quantization_config(self.device, settings.quantization)
+            if quant_config is not None:
+                model_kwargs["quantization_config"] = quant_config
+                logger.info("quantization_enabled", mode=settings.quantization, device=self.device)
+
             self._model = AutoModelForCausalLM.from_pretrained(
                 model_source,
                 **model_kwargs
@@ -174,7 +203,8 @@ class Qwen3Reranker:
                 self._model = self._model.to("mps")
             
             self._model.eval()
-            
+            self._model = maybe_quantize_int8(self._model, self.device, settings.quantization)
+
             # Get token IDs for "yes" and "no"
             self._token_true_id = self._tokenizer.convert_tokens_to_ids("yes")
             self._token_false_id = self._tokenizer.convert_tokens_to_ids("no")
