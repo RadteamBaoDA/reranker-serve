@@ -51,13 +51,13 @@ def build_load_kwargs(device: str, use_fp16: bool, has_flash_attn: bool) -> dict
     kwargs: dict = {"trust_remote_code": True}
 
     if device == "cuda":
-        kwargs["torch_dtype"] = torch.float16 if use_fp16 else torch.bfloat16
+        kwargs["dtype"] = torch.float16 if use_fp16 else torch.bfloat16
         kwargs["attn_implementation"] = (
             "flash_attention_2" if has_flash_attn else "sdpa"
         )
     else:
         # MPS and CPU both run fp32 with SDPA.
-        kwargs["torch_dtype"] = torch.float32
+        kwargs["dtype"] = torch.float32
         kwargs["attn_implementation"] = "sdpa"
 
     return kwargs

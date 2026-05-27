@@ -99,6 +99,23 @@ async def api_queue(_: bool = Depends(require_admin)) -> JSONResponse:
     return JSONResponse(engine.get_queue_snapshot())
 
 
+@router.get("/api/metrics/history")
+async def api_metrics_history(
+    _: bool = Depends(require_admin),
+    window: float | None = None,
+    since: float | None = None,
+) -> JSONResponse:
+    """Time-series perf samples for the dashboard charts.
+
+    No params -> full retained buffer. ``window`` (seconds) seeds a recent
+    window; ``since`` (epoch seconds) returns only newer samples for polling.
+    """
+    import time as _t
+    from src.observability.metrics_history import get_history
+    samples = get_history().get(window_seconds=window, since_ts=since)
+    return JSONResponse({"samples": samples, "server_now": _t.time()})
+
+
 async def _reload_engine():
     """Re-create the engine so config changes (model/device/batch) take effect."""
     from src.engine import reset_async_engine, get_async_engine
@@ -171,53 +188,109 @@ async def login_page(request: Request, error: int = 0):
 async def dashboard_page(request: Request):
     if not _authed(request):
         return RedirectResponse("/admin/login", status_code=303)
-    return _TEMPLATES.TemplateResponse(request, "dashboard.html", {"authed": True})
+    return _TEMPLATES.TemplateResponse(request, "dashboard.html", {"authed": True, "active": "dashboard"})
 
 
 @router.get("/config", response_class=HTMLResponse)
 async def config_page(request: Request):
     if not _authed(request):
         return RedirectResponse("/admin/login", status_code=303)
-    return _TEMPLATES.TemplateResponse(request, "config.html", {"authed": True})
+    return _TEMPLATES.TemplateResponse(request, "config.html", {"authed": True, "active": "config"})
 
 
 @router.get("/logs", response_class=HTMLResponse)
 async def logs_page(request: Request):
     if not _authed(request):
         return RedirectResponse("/admin/login", status_code=303)
-    return _TEMPLATES.TemplateResponse(request, "logs.html", {"authed": True})
+    return _TEMPLATES.TemplateResponse(request, "logs.html", {"authed": True, "active": "logs"})
 
 
 # ---------------------------------------------------------------------------
 # Partial routes (HTMX fragments)
 # ---------------------------------------------------------------------------
 
-@router.get("/partials/resources", response_class=HTMLResponse)
-async def partial_resources(_: bool = Depends(require_admin)):
+def _fmt(value, suffix="", dash="—"):
+    """Render a number compactly, falling back to a dash when missing."""
+    if value is None:
+        return dash
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    out = f"{f:,.0f}" if abs(f) >= 100 else f"{f:,.1f}"
+    return f"{out}{suffix}"
+
+
+def _kpi(label, value, sub="", accent=""):
+    cls = f"kpi {accent}".strip()
+    sub_html = f'<div class="kpi-sub">{sub}</div>' if sub else ""
+    return (
+        f'<div class="{cls}"><div class="kpi-label">{label}</div>'
+        f'<div class="kpi-value">{value}</div>{sub_html}</div>'
+    )
+
+
+@router.get("/partials/stats", response_class=HTMLResponse)
+async def partial_stats(_: bool = Depends(require_admin)):
+    """Live KPI cards across the top of the dashboard."""
     engine = await _get_engine()
     s = engine.get_stats()
-    res = s.get("device_resources", {})
-    pct = res.get("used_pct", 0.0)
-    extra = ""
-    if res.get("util_pct") is not None:
-        extra = f"<p>Util {res.get('util_pct')}% &nbsp; {res.get('temp_c','?')}&deg;C &nbsp; {res.get('power_w','?')}W</p>"
-    return HTMLResponse(
-        f"<p>{res.get('device','?')} — {res.get('mem_used_mb',0)} / {res.get('mem_total_mb',0)} MB ({pct}%)</p>"
-        f'<div class="bar"><span style="width:{min(pct,100)}%"></span></div>{extra}'
-        f"<p>p50 {s.get('inference_latency_p50_ms','?')} ms &nbsp; p95 {s.get('inference_latency_p95_ms','?')} ms &nbsp; "
-        f"{s.get('throughput_pairs_per_sec','?')} pairs/s</p>"
+    res = s.get("device_resources", {}) or {}
+    running = s.get("inflight_batches", 0)
+    waiting = s.get("pending_requests", 0)
+    mem_used, mem_total = res.get("mem_used_mb"), res.get("mem_total_mb")
+    mem_pct = res.get("used_pct")
+    has_gpu = res.get("util_pct") is not None
+
+    if has_gpu:
+        gpu_value = _fmt(res.get("util_pct"), "%")
+        gpu_sub = f"{_fmt(res.get('temp_c'), '°C')} · {_fmt(res.get('power_w'), 'W')}"
+    else:
+        gpu_value = res.get("device", "cpu")
+        gpu_sub = "no GPU telemetry"
+
+    vram_sub = (
+        f'{_fmt(mem_used,"")} / {_fmt(mem_total," MB")} '
+        f'<div class="bar"><span style="width:{min(float(mem_pct or 0),100)}%"></span></div>'
+        if mem_total else "—"
     )
+    occ = float(s.get("batch_occupancy_pct") or 0)
+
+    cards = "".join([
+        _kpi("Latency p50", _fmt(s.get("inference_latency_p50_ms"), " ms"),
+             f"p95 {_fmt(s.get('inference_latency_p95_ms'), ' ms')}", "accent-blue"),
+        _kpi("Throughput", _fmt(s.get("requests_per_second"), " req/s"),
+             f"{_fmt(s.get('throughput_pairs_per_sec'), ' pairs/s')}", "accent-green"),
+        _kpi("GPU Util", gpu_value, gpu_sub, "accent-violet"),
+        _kpi("VRAM", _fmt(mem_pct, "%"), vram_sub, "accent-amber"),
+        _kpi("Queue", _fmt(running, "") + " running", f"{_fmt(waiting,'')} waiting", "accent-cyan"),
+        _kpi("Batch occupancy", _fmt(occ, "%"),
+             f'<div class="bar"><span style="width:{min(occ,100)}%"></span></div>', "accent-pink"),
+    ])
+    return HTMLResponse(f'<div class="kpi-grid">{cards}</div>')
 
 
 @router.get("/partials/queue", response_class=HTMLResponse)
 async def partial_queue(_: bool = Depends(require_admin)):
     engine = await _get_engine()
     snap = engine.get_queue_snapshot()
-    run = "".join(f"<tr><td>{b['batch_id']}</td><td>{b['num_requests']}</td><td>{b['pairs']}</td><td>{b['elapsed_ms']}</td></tr>" for b in snap["running"])
-    wait = "".join(f"<tr><td>{w['request_id']}</td><td>{w['num_docs']}</td><td>{w['waited_ms']}</td></tr>" for w in snap["waiting"])
+    run = "".join(
+        f"<tr><td class='mono'>{b['batch_id']}</td><td>{b['num_requests']}</td>"
+        f"<td>{b['pairs']}</td><td>{_fmt(b['elapsed_ms'],' ms')}</td></tr>"
+        for b in snap["running"]
+    ) or '<tr class="empty"><td colspan="4">idle — no batches running</td></tr>'
+    wait = "".join(
+        f"<tr><td class='mono'>{w['request_id']}</td><td>{w['num_docs']}</td>"
+        f"<td>{_fmt(w['waited_ms'],' ms')}</td></tr>"
+        for w in snap["waiting"]
+    ) or '<tr class="empty"><td colspan="3">empty — nothing waiting</td></tr>'
     return HTMLResponse(
-        f"<h4>Running ({len(snap['running'])})</h4><table><tr><th>batch</th><th>reqs</th><th>pairs</th><th>ms</th></tr>{run}</table>"
-        f"<h4>Waiting ({len(snap['waiting'])})</h4><table><tr><th>request</th><th>docs</th><th>ms</th></tr>{wait}</table>"
+        f'<div class="table-head"><h4>Running</h4><span class="pill">{len(snap["running"])}</span></div>'
+        f'<table class="data"><thead><tr><th>batch</th><th>reqs</th><th>pairs</th><th>elapsed</th></tr></thead>'
+        f'<tbody>{run}</tbody></table>'
+        f'<div class="table-head"><h4>Waiting</h4><span class="pill">{len(snap["waiting"])}</span></div>'
+        f'<table class="data"><thead><tr><th>request</th><th>docs</th><th>waited</th></tr></thead>'
+        f'<tbody>{wait}</tbody></table>'
     )
 
 

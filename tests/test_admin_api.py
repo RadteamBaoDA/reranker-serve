@@ -60,3 +60,33 @@ def test_resources_requires_auth(monkeypatch):
     app = FastAPI(); app.include_router(routes.router)
     r = TestClient(app).get("/admin/api/resources", follow_redirects=False)
     assert r.status_code in (303, 401)
+
+
+def test_stats_partial_renders_kpi_cards(monkeypatch):
+    c = _app(monkeypatch)
+    r = c.get("/admin/partials/stats")
+    assert r.status_code == 200
+    assert "kpi-grid" in r.text
+    assert "Latency p50" in r.text
+
+
+def test_metrics_history_endpoint(monkeypatch):
+    from src.observability import metrics_history as mh
+    mh.reset_history()
+    mh.get_history().record(mh.build_sample({"inference_latency_p50_ms": 5.0}, now=1.0))
+    c = _app(monkeypatch)
+    r = c.get("/admin/api/metrics/history")
+    assert r.status_code == 200
+    body = r.json()
+    assert "server_now" in body
+    assert body["samples"][-1]["p50_ms"] == 5.0
+
+
+def test_metrics_history_requires_auth(monkeypatch):
+    from src.config import settings as s
+    monkeypatch.setattr(s, "admin_password", "pw")
+    import src.admin.routes as routes
+    importlib.reload(routes)
+    app = FastAPI(); app.include_router(routes.router)
+    r = TestClient(app).get("/admin/api/metrics/history", follow_redirects=False)
+    assert r.status_code in (303, 401)

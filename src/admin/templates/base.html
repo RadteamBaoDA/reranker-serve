@@ -5,26 +5,102 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Reranker Admin</title>
   <script src="/admin/static/htmx.min.js"></script>
+  <link rel="stylesheet" href="/admin/static/uPlot.min.css"/>
+  <script src="/admin/static/uPlot.iife.min.js"></script>
   <style>
-    body{font-family:system-ui,sans-serif;margin:0;background:#0f1115;color:#e6e6e6}
-    header{display:flex;gap:1rem;align-items:center;padding:.6rem 1rem;background:#1a1d24;border-bottom:1px solid #2a2e37}
-    header a{color:#9ad;text-decoration:none;margin-right:.8rem}
-    main{padding:1rem;max-width:1100px;margin:0 auto}
-    .card{background:#171a21;border:1px solid #262b35;border-radius:8px;padding:1rem;margin-bottom:1rem}
-    .bar{height:18px;background:#2a2e37;border-radius:4px;overflow:hidden}
-    .bar>span{display:block;height:100%;background:linear-gradient(90deg,#4ad,#4fa)}
-    table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.3rem .5rem;border-bottom:1px solid #262b35;font-size:.9rem}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}
-    input,button,select,textarea{background:#0f1115;color:#e6e6e6;border:1px solid #2a2e37;border-radius:4px;padding:.4rem}
-    button{background:#2563eb;border:none;cursor:pointer}
+    :root{
+      --bg:#0b0d12; --panel:#141821; --panel-2:#1b212c; --border:#262d3a;
+      --text:#e6e9ef; --muted:#8b94a7;
+      --blue:#3b82f6; --green:#22c55e; --violet:#8b5cf6;
+      --amber:#f59e0b; --cyan:#06b6d4; --pink:#ec4899; --red:#ef4444;
+      --radius:12px; --shadow:0 1px 0 rgba(255,255,255,.03),0 8px 24px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;
+      background:radial-gradient(1200px 600px at 80% -10%,#172033 0,var(--bg) 60%);
+      color:var(--text);-webkit-font-smoothing:antialiased}
+    header{display:flex;gap:.4rem;align-items:center;padding:.7rem 1.2rem;
+      background:rgba(20,24,33,.85);backdrop-filter:blur(8px);
+      border-bottom:1px solid var(--border);position:sticky;top:0;z-index:10}
+    header .brand{font-weight:700;letter-spacing:.3px;margin-right:1rem;display:flex;align-items:center;gap:.5rem}
+    header .dot{width:9px;height:9px;border-radius:50%;background:var(--green);
+      box-shadow:0 0 0 3px rgba(34,197,94,.18)}
+    header nav a{color:var(--muted);text-decoration:none;padding:.4rem .7rem;border-radius:8px;font-size:.9rem}
+    header nav a:hover{color:var(--text);background:var(--panel-2)}
+    header nav a.active{color:#fff;background:linear-gradient(180deg,var(--blue),#2563eb)}
+    main{padding:1.2rem;max-width:1280px;margin:0 auto}
+    h2{margin:.2rem 0 1rem;font-size:1.4rem}
+    .muted{color:var(--muted)}
+
+    .card{background:linear-gradient(180deg,var(--panel),var(--panel-2));
+      border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.1rem;
+      margin-bottom:1rem;box-shadow:var(--shadow)}
+    .card>h3{margin:.1rem 0 .8rem;font-size:.95rem;color:var(--muted);font-weight:600;
+      text-transform:uppercase;letter-spacing:.6px}
+
+    /* KPI cards */
+    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.9rem}
+    .kpi{background:linear-gradient(180deg,var(--panel),var(--panel-2));
+      border:1px solid var(--border);border-radius:var(--radius);padding:.9rem 1rem;
+      position:relative;overflow:hidden;box-shadow:var(--shadow)}
+    .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--muted)}
+    .kpi.accent-blue::before{background:var(--blue)} .kpi.accent-green::before{background:var(--green)}
+    .kpi.accent-violet::before{background:var(--violet)} .kpi.accent-amber::before{background:var(--amber)}
+    .kpi.accent-cyan::before{background:var(--cyan)} .kpi.accent-pink::before{background:var(--pink)}
+    .kpi-label{font-size:.72rem;text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}
+    .kpi-value{font-size:1.7rem;font-weight:700;margin:.15rem 0;line-height:1.1}
+    .kpi-sub{font-size:.8rem;color:var(--muted)}
+
+    .bar{height:6px;background:#2a3140;border-radius:4px;overflow:hidden;margin-top:.4rem}
+    .bar>span{display:block;height:100%;background:linear-gradient(90deg,#38bdf8,#22c55e);transition:width .4s}
+
+    /* charts */
+    .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1rem}
+    .chart-box{min-height:200px}
+    .u-legend{font-size:.8rem}
+    .uplot{width:100%}
+
+    /* controls */
+    .controls{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem}
+    .seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+    .seg button{background:var(--panel);color:var(--muted);border:none;padding:.4rem .7rem;cursor:pointer;font-size:.85rem}
+    .seg button.active{background:var(--blue);color:#fff}
+    .toggle{background:var(--panel);color:var(--text);border:1px solid var(--border);
+      border-radius:8px;padding:.4rem .8rem;cursor:pointer;font-size:.85rem}
+    .toggle.paused{border-color:var(--amber);color:var(--amber)}
+
+    /* tables */
+    table.data{width:100%;border-collapse:collapse;margin-bottom:1rem}
+    table.data th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;
+      color:var(--muted);padding:.4rem .6rem;border-bottom:1px solid var(--border)}
+    table.data td{padding:.45rem .6rem;border-bottom:1px solid #1e2530;font-size:.88rem}
+    table.data tr:hover td{background:rgba(255,255,255,.02)}
+    table.data .empty td{color:var(--muted);font-style:italic;text-align:center}
+    td.mono,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.82rem}
+    .table-head{display:flex;align-items:center;gap:.5rem;margin:.2rem 0 .4rem}
+    .table-head h4{margin:0;font-size:.95rem}
+    .pill{background:var(--panel-2);border:1px solid var(--border);border-radius:999px;
+      padding:.05rem .55rem;font-size:.78rem;color:var(--muted)}
+
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}
+    input,button,select,textarea{background:var(--panel);color:var(--text);
+      border:1px solid var(--border);border-radius:8px;padding:.5rem .6rem;font-size:.9rem}
+    main button{background:linear-gradient(180deg,var(--blue),#2563eb);border:none;cursor:pointer;color:#fff}
+    main button.ghost{background:var(--panel)}
   </style>
 </head>
 <body>
   {% if authed %}
   <header>
-    <strong>Reranker Admin</strong>
-    <a href="/admin">Dashboard</a><a href="/admin/config">Config</a><a href="/admin/logs">Logs</a>
-    <form method="post" action="/admin/logout" style="margin-left:auto"><button>Logout</button></form>
+    <span class="brand"><span class="dot"></span>Reranker Admin</span>
+    <nav>
+      <a href="/admin" class="{{ 'active' if active=='dashboard' else '' }}">Dashboard</a>
+      <a href="/admin/config" class="{{ 'active' if active=='config' else '' }}">Config</a>
+      <a href="/admin/logs" class="{{ 'active' if active=='logs' else '' }}">Logs</a>
+    </nav>
+    <form method="post" action="/admin/logout" style="margin-left:auto">
+      <button class="ghost">Logout</button>
+    </form>
   </header>
   {% endif %}
   <main>{% block body %}{% endblock %}</main>

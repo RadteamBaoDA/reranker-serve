@@ -99,6 +99,7 @@ class AsyncRerankerEngine:
         self.device_profile: Optional[DeviceProfile] = None
 
         self._processor_task: Optional[asyncio.Task] = None
+        self._metrics_task: Optional[asyncio.Task] = None
         self._running = False
         self._batch_semaphore = asyncio.Semaphore(self.max_concurrent_batches)
         self._inflight_batches: set[asyncio.Task] = set()
@@ -168,9 +169,32 @@ class AsyncRerankerEngine:
             self._batch_processor_loop(),
             name="reranker-batch-processor",
         )
+        self._metrics_task = asyncio.create_task(
+            self._metrics_sampler_loop(),
+            name="reranker-metrics-sampler",
+        )
 
         logger.info("async_engine_started")
         return self
+
+    async def _metrics_sampler_loop(self) -> None:
+        """Periodically snapshot stats into the shared metrics-history buffer.
+
+        Feeds the admin dashboard trend charts. Failures here must never affect
+        request serving, so the body is fully guarded.
+        """
+        from src.observability.metrics_history import build_sample, get_history
+
+        interval = max(1, int(settings.metrics_sample_interval_s))
+        history = get_history()
+        while self._running:
+            try:
+                await asyncio.sleep(interval)
+                history.record(build_sample(self.get_stats(), now=time.time()))
+            except asyncio.CancelledError:
+                break
+            except Exception as e:  # pragma: no cover - defensive
+                logger.debug("metrics_sample_failed", error=str(e))
 
     async def stop(self) -> None:
         """Stop the engine gracefully."""
@@ -180,6 +204,14 @@ class AsyncRerankerEngine:
         logger.info("stopping_async_engine")
         self._running = False
         self.request_queue.shutdown()
+
+        if self._metrics_task:
+            self._metrics_task.cancel()
+            try:
+                await self._metrics_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._metrics_task = None
 
         if self._processor_task:
             try:

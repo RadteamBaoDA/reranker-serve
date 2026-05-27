@@ -118,6 +118,14 @@ class Settings(BaseSettings):
         default=True,
         description="Emit per-batch child span. Lets ops dial back trace volume."
     )
+    metrics_history_minutes: int = Field(
+        default=60,
+        description="Rolling window (minutes) of perf samples kept for the admin dashboard charts."
+    )
+    metrics_sample_interval_s: int = Field(
+        default=5,
+        description="How often (seconds) the engine snapshots stats into the metrics history buffer."
+    )
 
     # Device Configuration
     device: Optional[str] = Field(
