@@ -78,6 +78,11 @@ tui = [
 quant = [
     "torchao>=0.7.0",
 ]
+gpu-metrics = [
+    # Optional: NVIDIA utilization/temp/power for the admin dashboard.
+    # Install with: pip install '.[gpu-metrics]'
+    "pynvml>=11.5.0",
+]
 observability = [
     # Install with: pip install '.[observability]' — required only when RERANKER_EXPOSE_PROMETHEUS_METRICS or RERANKER_ENABLE_OTEL is set
     "prometheus-client>=0.20.0",
