@@ -3,7 +3,8 @@ Health check endpoints for the reranker service.
 """
 
 from typing import Any, Dict, Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from src.api.routes import verify_api_key
 from pydantic import BaseModel
 
 from src.config import settings, get_logger
@@ -81,7 +82,7 @@ async def root() -> HealthResponse:
 
 
 @health_router.get("/info", response_model=ModelInfoResponse)
-async def model_info() -> ModelInfoResponse:
+async def model_info(_: bool = Depends(verify_api_key)) -> ModelInfoResponse:
     """
     Get detailed model information.
     """
@@ -119,7 +120,7 @@ async def model_info() -> ModelInfoResponse:
 
 
 @health_router.get("/stats", response_model=EngineStatsResponse)
-async def engine_stats() -> EngineStatsResponse:
+async def engine_stats(_: bool = Depends(verify_api_key)) -> EngineStatsResponse:
     """
     Get engine statistics including request queue metrics.
     """
