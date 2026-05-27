@@ -75,6 +75,9 @@ tui = [
     # Install with: pip install '.[tui]'
     "rich>=13.0.0",
 ]
+quant = [
+    "torchao>=0.7.0",
+]
 observability = [
     # Install with: pip install '.[observability]' — required only when RERANKER_EXPOSE_PROMETHEUS_METRICS or RERANKER_ENABLE_OTEL is set
     "prometheus-client>=0.20.0",

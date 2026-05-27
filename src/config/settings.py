@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     )
     
     # Model Inference Configuration
-    max_length: int = Field(default=512, description="Maximum sequence length")
+    max_length: int = Field(default=256, description="Maximum sequence length for the rerank prompt (lower = faster/less VRAM; rerankers rarely need long context)")
     batch_size: int = Field(default=32, description="Batch size for inference")
     normalize_scores: bool = Field(default=True, description="Normalize reranker scores to 0-1")
     
@@ -132,7 +132,25 @@ class Settings(BaseSettings):
         default=True,
         description="Use FP16 for faster inference (if supported)"
     )
-    
+
+    # Quantization / precision lever (device-gated, opt-in)
+    quantization: Literal["none", "fp8", "int8"] = Field(
+        default="none",
+        description="none = device default precision; fp8 = Ada CUDA FP8; int8 = CPU dynamic int8. Unsupported value for the active device uses the default precision with a warning."
+    )
+
+    # CPU performance
+    cpu_num_threads: Optional[int] = Field(
+        default=None,
+        description="torch intra-op thread count on CPU. None = os.cpu_count()."
+    )
+
+    # VRAM-aware batch sizing
+    device_mem_safety_margin: float = Field(
+        default=0.15,
+        description="Fraction of device memory the batch-size probe keeps free (0.15 = keep 15% headroom)."
+    )
+
     # MPS (Apple Silicon) Optimization
     mps_fallback_to_cpu: bool = Field(
         default=True,
@@ -300,6 +318,9 @@ def load_yaml_config(yaml_path: Optional[str] = None) -> Dict[str, Any]:
             flat_config['force_cpu_only'] = device_cfg.get('force_cpu_only')
             flat_config['use_fp16'] = device_cfg.get('use_fp16')
             flat_config['mps_fallback_to_cpu'] = device_cfg.get('mps_fallback_to_cpu')
+            flat_config['quantization'] = device_cfg.get('quantization')
+            flat_config['cpu_num_threads'] = device_cfg.get('cpu_num_threads')
+            flat_config['device_mem_safety_margin'] = device_cfg.get('device_mem_safety_margin')
         
         if 'api' in yaml_config:
             api_cfg = yaml_config['api']

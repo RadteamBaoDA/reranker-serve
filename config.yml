@@ -26,12 +26,12 @@ model:
   #   - Qwen/Qwen3-Reranker-0.6B (Qwen3-based, multilingual)
   #   - Qwen/Qwen3-Reranker-4B (Qwen3-based, larger)
   #   - Qwen/Qwen3-Reranker-8B (Qwen3-based, best quality)
-  name: Qwen/Qwen3-Reranker-8B
-  
+  name: Qwen/Qwen3-Reranker-4B
+
   # Local path to load model from disk (optional)
   # If set, will load from this path instead of downloading
   # path: /path/to/local/model
-  path: ./models/Qwen3-Reranker-8B
+  path: ./models/Qwen3-Reranker-4B
   
   # Directory to cache downloaded models
   cache_dir: ./models
@@ -44,7 +44,7 @@ model:
 # =============================================================================
 inference:
   # Maximum sequence length
-  max_length: 512
+  max_length: 256
   
   # Batch size for inference
   batch_size: 32
@@ -64,9 +64,15 @@ device:
   # RERANKER_FORCE_CPU_ONLY=true) only when you specifically need CPU.
   force_cpu_only: false
   
-  # Use FP16 precision (faster on CUDA, may cause issues on MPS)
-  use_fp16: true
-  
+  # Quantization lever: none | fp8 (Ada CUDA) | int8 (CPU). Opt-in.
+  quantization: none
+  # On CUDA, prefer bf16 for Qwen3 on Ada: set use_fp16 to false.
+  use_fp16: false
+  # torch intra-op threads on CPU (null = all cores)
+  cpu_num_threads: null
+  # Keep this fraction of device memory free when probing batch size
+  device_mem_safety_margin: 0.15
+
   # Fallback to CPU if MPS operation fails
   mps_fallback_to_cpu: true
 
