@@ -86,3 +86,44 @@ async def api_resources(_: bool = Depends(require_admin)) -> JSONResponse:
 async def api_queue(_: bool = Depends(require_admin)) -> JSONResponse:
     engine = await _get_engine()
     return JSONResponse(engine.get_queue_snapshot())
+
+
+async def _reload_engine():
+    """Re-create the engine so config changes (model/device/batch) take effect."""
+    from src.engine import reset_async_engine, get_async_engine
+    await reset_async_engine()
+    await get_async_engine()
+
+
+def _schedule_exit():
+    """Ask the process to exit so supervisord respawns with new config."""
+    import os
+    import signal
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+@router.post("/api/config")
+async def api_apply_config(request: Request, _: bool = Depends(require_admin)) -> JSONResponse:
+    body = await request.json()
+    updates = body.get("updates", {})
+    if not isinstance(updates, dict) or not updates:
+        raise HTTPException(status_code=400, detail="No updates provided")
+    result = config_io.write_config_updates(updates)
+    if not result["written"]:
+        raise HTTPException(status_code=400, detail={"rejected": result["rejected"]})
+    try:
+        await _reload_engine()
+        result["reloaded"] = True
+    except Exception as e:
+        logger.error("engine_reload_failed", error=str(e))
+        result["reloaded"] = False
+        result["reload_error"] = str(e)
+    return JSONResponse(result)
+
+
+@router.post("/api/restart")
+async def api_restart(_: bool = Depends(require_admin)) -> JSONResponse:
+    engine = await _get_engine()
+    engine.begin_shutdown()
+    _schedule_exit()
+    return JSONResponse({"restarting": True})
