@@ -17,6 +17,28 @@ from src.config import settings, get_logger
 logger = get_logger(__name__)
 
 
+def build_load_kwargs(device: str, use_fp16: bool, has_flash_attn: bool) -> dict:
+    """Choose model-load kwargs (dtype + attention) for the active device.
+
+    CUDA: fp16 if use_fp16 else bf16; flash-attn-2 when available, else SDPA.
+    MPS:  fp32 (kernel stability), SDPA.
+    CPU:  fp32, SDPA.
+    """
+    kwargs: dict = {"trust_remote_code": True}
+
+    if device == "cuda":
+        kwargs["torch_dtype"] = torch.float16 if use_fp16 else torch.bfloat16
+        kwargs["attn_implementation"] = (
+            "flash_attention_2" if has_flash_attn else "sdpa"
+        )
+    else:
+        # MPS and CPU both run fp32 with SDPA.
+        kwargs["torch_dtype"] = torch.float32
+        kwargs["attn_implementation"] = "sdpa"
+
+    return kwargs
+
+
 class Qwen3Reranker:
     """
     Qwen3 Reranker model wrapper.
@@ -124,35 +146,21 @@ class Qwen3Reranker:
                 self._tokenizer.pad_token = self._tokenizer.eos_token
                 self._tokenizer.pad_token_id = self._tokenizer.eos_token_id
             
-            # Load model
-            model_kwargs = {
-                "trust_remote_code": True,
-            }
-            
-            # Set dtype based on device. MPS has limited bf16/fp16 support, so
-            # force float32 there to avoid kernel errors.
-            if self.use_fp16 and self.device == "cuda":
-                model_kwargs["torch_dtype"] = torch.float16
-            elif self.device == "mps":
-                model_kwargs["torch_dtype"] = torch.float32
-            elif self.device == "cuda":
-                model_kwargs["torch_dtype"] = torch.bfloat16
-            
-            # Check if flash attention is available (only for CUDA)
-            use_flash_attn = False
+            # Detect flash-attention-2 (CUDA only).
+            has_flash_attn = False
             if self.device == "cuda":
                 try:
-                    import flash_attn
-                    use_flash_attn = True
-                    logger.debug("flash_attention_available", version=getattr(flash_attn, "__version__", "unknown"))
+                    import flash_attn  # noqa: F401
+                    has_flash_attn = True
+                    logger.debug("flash_attention_available")
                 except ImportError:
                     logger.debug("flash_attention_not_available", using="sdpa")
-            
-            if use_flash_attn:
-                model_kwargs["attn_implementation"] = "flash_attention_2"
-            else:
-                # Use SDPA (scaled dot-product attention) as fallback - available in PyTorch 2.0+
-                model_kwargs["attn_implementation"] = "sdpa"
+
+            model_kwargs = build_load_kwargs(
+                device=self.device,
+                use_fp16=self.use_fp16,
+                has_flash_attn=has_flash_attn,
+            )
             
             self._model = AutoModelForCausalLM.from_pretrained(
                 model_source,
