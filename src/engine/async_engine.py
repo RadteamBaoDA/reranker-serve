@@ -27,6 +27,15 @@ from src.engine.device_probe import DeviceProfile, run_device_probe
 logger = get_logger(__name__)
 
 
+def resolve_cpu_threads(device: str, configured: Optional[int], cpu_count: int) -> Optional[int]:
+    """Thread count for torch intra-op parallelism on CPU. None for GPU devices."""
+    if device != "cpu":
+        return None
+    if configured and configured > 0:
+        return configured
+    return cpu_count
+
+
 class AsyncRerankerEngine:
     """High-performance async reranker engine with batching."""
 
@@ -118,6 +127,14 @@ class AsyncRerankerEngine:
         )
 
         await self._load_model()
+
+        import torch
+        threads = resolve_cpu_threads(
+            self.device, settings.cpu_num_threads, os.cpu_count() or 1
+        )
+        if threads is not None:
+            torch.set_num_threads(threads)
+            logger.info("cpu_threads_configured", threads=threads)
 
         if settings.enable_device_probe and self._handler is not None:
             loop = asyncio.get_running_loop()
