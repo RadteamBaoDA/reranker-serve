@@ -76,3 +76,9 @@ groups:
 | `queue_wait_p95_ms` growing while inference flat | Behind the curve | Raise `RERANKER_MAX_BATCH_PAIRS` |
 
 See `docs/concurrency.md` for full discussion of the knobs.
+
+## Phase 3 device notes
+
+- **CPU now loads weights in fp32** (previously the model's default dtype, often bf16). This is intentional — CPU bf16 matmul is poorly supported and slow — but is a behavior change for CPU deployments. Set `RERANKER_QUANTIZATION=int8` for a faster CPU path.
+- **`max_batch_pairs` is auto-tuned at startup** from a VRAM/RAM probe (keeps `RERANKER_DEVICE_MEM_SAFETY_MARGIN`, default 15%, free). Pin `RERANKER_MAX_BATCH_PAIRS` to override.
+- **FP8 (`RERANKER_QUANTIZATION=fp8`)** is CUDA/Ada-only and requires `torchao`; it roughly doubles the batch that fits and is the lever for p95 < 800 ms at high concurrency.
