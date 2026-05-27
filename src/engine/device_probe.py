@@ -104,8 +104,9 @@ def _device_free_fraction(device: str) -> float:
     try:
         if device == "cuda":
             import torch
-            free, total = torch.cuda.mem_get_info()
-            return free / total if total else 0.0
+            total = torch.cuda.mem_get_info()[1]
+            peak = torch.cuda.max_memory_allocated()
+            return (total - peak) / total if total else 0.0
         if device == "mps":
             import torch
             total = torch.mps.recommended_max_memory()
@@ -198,6 +199,12 @@ def run_device_probe(
                 for _ in range(n_requests)
             ],
         )
+        try:
+            if device == "cuda":
+                import torch
+                torch.cuda.reset_peak_memory_stats()
+        except Exception:
+            pass
         try:
             handler.predict(probe_batch)
         except Exception:
