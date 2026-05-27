@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Reranker Admin</title>
+  <script src="/admin/static/htmx.min.js"></script>
+  <style>
+    body{font-family:system-ui,sans-serif;margin:0;background:#0f1115;color:#e6e6e6}
+    header{display:flex;gap:1rem;align-items:center;padding:.6rem 1rem;background:#1a1d24;border-bottom:1px solid #2a2e37}
+    header a{color:#9ad;text-decoration:none;margin-right:.8rem}
+    main{padding:1rem;max-width:1100px;margin:0 auto}
+    .card{background:#171a21;border:1px solid #262b35;border-radius:8px;padding:1rem;margin-bottom:1rem}
+    .bar{height:18px;background:#2a2e37;border-radius:4px;overflow:hidden}
+    .bar>span{display:block;height:100%;background:linear-gradient(90deg,#4ad,#4fa)}
+    table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:.3rem .5rem;border-bottom:1px solid #262b35;font-size:.9rem}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}
+    input,button,select,textarea{background:#0f1115;color:#e6e6e6;border:1px solid #2a2e37;border-radius:4px;padding:.4rem}
+    button{background:#2563eb;border:none;cursor:pointer}
+  </style>
+</head>
+<body>
+  {% if authed %}
+  <header>
+    <strong>Reranker Admin</strong>
+    <a href="/admin">Dashboard</a><a href="/admin/config">Config</a><a href="/admin/logs">Logs</a>
+    <form method="post" action="/admin/logout" style="margin-left:auto"><button>Logout</button></form>
+  </header>
+  {% endif %}
+  <main>{% block body %}{% endblock %}</main>
+</body>
+</html>

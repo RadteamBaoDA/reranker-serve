@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block body %}
+<h2>Dashboard</h2>
+<div class="grid">
+  <div class="card"><h3>GPU / Device Quota</h3>
+    <div hx-get="/admin/partials/resources" hx-trigger="load, every 2s">Loading…</div>
+  </div>
+  <div class="card"><h3>Queue</h3>
+    <div hx-get="/admin/partials/queue" hx-trigger="load, every 2s">Loading…</div>
+  </div>
+</div>
+{% endblock %}

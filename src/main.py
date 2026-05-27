@@ -359,7 +359,15 @@ def create_app() -> FastAPI:
         from src.api.lb_routes import router as lb_router
         logger.debug("including_load_balancer_routes")
         app.include_router(lb_router)
-    
+
+    # Mount admin UI (Jinja2 pages + HTMX partials + static assets)
+    from src.admin.routes import router as admin_router
+    from fastapi.staticfiles import StaticFiles
+    import os as _os
+    app.include_router(admin_router)
+    _static = _os.path.join(_os.path.dirname(__file__), "admin", "static")
+    app.mount("/admin/static", StaticFiles(directory=_static), name="admin-static")
+
     logger.debug("create_app_complete")
 
     if settings.enable_otel:

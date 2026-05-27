@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import os as _os
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 
 from src.config import settings, get_logger
 from src.admin import auth, config_io
+
+_TEMPLATES = Jinja2Templates(directory=_os.path.join(_os.path.dirname(__file__), "templates"))
 
 logger = get_logger(__name__)
 
@@ -27,6 +32,12 @@ def require_admin(request: Request) -> bool:
     if not auth.verify_session_token(token, settings.admin_password):
         raise HTTPException(status_code=401, detail="Admin session required")
     return True
+
+
+def _authed(request: Request) -> bool:
+    if not settings.admin_password:
+        return False
+    return auth.verify_session_token(request.cookies.get(_COOKIE, ""), settings.admin_password)
 
 
 @router.post("/login")
@@ -145,3 +156,93 @@ async def api_logs_tail(_: bool = Depends(require_admin), lines: int = 200, q: s
     if q:
         collected = [ln for ln in collected if q in ln]
     return JSONResponse({"lines": collected[-lines:]})
+
+
+# ---------------------------------------------------------------------------
+# Page routes
+# ---------------------------------------------------------------------------
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: int = 0):
+    return _TEMPLATES.TemplateResponse(request, "login.html", {"error": error, "authed": False})
+
+
+@router.get("", response_class=HTMLResponse)
+async def dashboard_page(request: Request):
+    if not _authed(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    return _TEMPLATES.TemplateResponse(request, "dashboard.html", {"authed": True})
+
+
+@router.get("/config", response_class=HTMLResponse)
+async def config_page(request: Request):
+    if not _authed(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    return _TEMPLATES.TemplateResponse(request, "config.html", {"authed": True})
+
+
+@router.get("/logs", response_class=HTMLResponse)
+async def logs_page(request: Request):
+    if not _authed(request):
+        return RedirectResponse("/admin/login", status_code=303)
+    return _TEMPLATES.TemplateResponse(request, "logs.html", {"authed": True})
+
+
+# ---------------------------------------------------------------------------
+# Partial routes (HTMX fragments)
+# ---------------------------------------------------------------------------
+
+@router.get("/partials/resources", response_class=HTMLResponse)
+async def partial_resources(_: bool = Depends(require_admin)):
+    engine = await _get_engine()
+    s = engine.get_stats()
+    res = s.get("device_resources", {})
+    pct = res.get("used_pct", 0.0)
+    extra = ""
+    if res.get("util_pct") is not None:
+        extra = f"<p>Util {res.get('util_pct')}% &nbsp; {res.get('temp_c','?')}&deg;C &nbsp; {res.get('power_w','?')}W</p>"
+    return HTMLResponse(
+        f"<p>{res.get('device','?')} — {res.get('mem_used_mb',0)} / {res.get('mem_total_mb',0)} MB ({pct}%)</p>"
+        f'<div class="bar"><span style="width:{min(pct,100)}%"></span></div>{extra}'
+        f"<p>p50 {s.get('inference_latency_p50_ms','?')} ms &nbsp; p95 {s.get('inference_latency_p95_ms','?')} ms &nbsp; "
+        f"{s.get('throughput_pairs_per_sec','?')} pairs/s</p>"
+    )
+
+
+@router.get("/partials/queue", response_class=HTMLResponse)
+async def partial_queue(_: bool = Depends(require_admin)):
+    engine = await _get_engine()
+    snap = engine.get_queue_snapshot()
+    run = "".join(f"<tr><td>{b['batch_id']}</td><td>{b['num_requests']}</td><td>{b['pairs']}</td><td>{b['elapsed_ms']}</td></tr>" for b in snap["running"])
+    wait = "".join(f"<tr><td>{w['request_id']}</td><td>{w['num_docs']}</td><td>{w['waited_ms']}</td></tr>" for w in snap["waiting"])
+    return HTMLResponse(
+        f"<h4>Running ({len(snap['running'])})</h4><table><tr><th>batch</th><th>reqs</th><th>pairs</th><th>ms</th></tr>{run}</table>"
+        f"<h4>Waiting ({len(snap['waiting'])})</h4><table><tr><th>request</th><th>docs</th><th>ms</th></tr>{wait}</table>"
+    )
+
+
+@router.get("/partials/config", response_class=HTMLResponse)
+async def partial_config(_: bool = Depends(require_admin)):
+    rows = config_io.get_config_snapshot()
+    body = "".join(
+        f"<tr><td>{r['name']}</td><td>{r['value']}</td><td>{r['source']}</td>"
+        f"<td>{'restart' if r['needs_restart'] else 'hot'}</td></tr>" for r in rows
+    )
+    return HTMLResponse(f"<table><tr><th>setting</th><th>value</th><th>source</th><th>apply</th></tr>{body}</table>")
+
+
+@router.get("/partials/logs", response_class=HTMLResponse)
+async def partial_logs(_: bool = Depends(require_admin), q: str = ""):
+    import glob
+    import html
+    log_files = sorted(glob.glob(_os.path.join(settings.log_dir, "*.log")))
+    out: list[str] = []
+    for path in log_files:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                out.extend(f.read().splitlines())
+        except OSError:
+            continue
+    if q:
+        out = [ln for ln in out if q in ln]
+    return HTMLResponse(html.escape("\n".join(out[-300:])))
