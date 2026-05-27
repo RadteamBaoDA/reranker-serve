@@ -105,7 +105,7 @@ def test_cross_encoder_handler_predict_normalizes_scores(monkeypatch):
 def test_qwen_handler_load_and_predict(monkeypatch):
     loaded = {
         "load_called": False,
-        "rerank_called": False,
+        "score_pairs_called": False,
     }
 
     class FakeQwen(Qwen3Reranker):
@@ -117,12 +117,9 @@ def test_qwen_handler_load_and_predict(monkeypatch):
             loaded["load_called"] = True
             return self
 
-        def rerank(self, query, documents, top_k=None, return_documents=True, instruction=None):
-            loaded["rerank_called"] = True
-            return [
-                {"index": 0, "relevance_score": 0.5},
-                {"index": 1, "relevance_score": 0.4},
-            ]
+        def score_pairs(self, pairs, instruction=None):
+            loaded["score_pairs_called"] = True
+            return [0.5 - 0.1 * i for i, _ in enumerate(pairs)]
 
     monkeypatch.setattr("src.engine.handlers.qwen.Qwen3Reranker", FakeQwen)
 
@@ -133,7 +130,7 @@ def test_qwen_handler_load_and_predict(monkeypatch):
     results = handler.predict(batch)[0]
 
     assert loaded["load_called"] is True
-    assert loaded["rerank_called"] is True
+    assert loaded["score_pairs_called"] is True
     assert results[0]["index"] == 0
 
 

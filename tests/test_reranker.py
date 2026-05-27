@@ -41,17 +41,14 @@ def test_qwen_handler_predict_delegates_to_model():
     handler = QwenRerankerHandler("qwen", "cpu", 32, False)
 
     class DummyQwen:
-        def rerank(self, query, documents, top_k=None, return_documents=True):
-            return [
-                {"index": idx, "relevance_score": 0.5 + idx, "document": {"text": doc}}
-                for idx, doc in enumerate(documents)
-            ][: top_k or len(documents)]
+        def score_pairs(self, pairs, instruction=None):
+            return [0.5 + idx for idx, _ in enumerate(pairs)]
 
     handler.model = DummyQwen()
     batch = _batched_request("q", ["a", "b", "c"])
     results = handler.predict(batch)[0]
     assert len(results) == 3
-    assert results[0]["relevance_score"] <= results[-1]["relevance_score"]
+    assert results[0]["relevance_score"] >= results[-1]["relevance_score"]
 
 
 def test_reranker_model_normalize_scores():
